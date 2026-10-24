@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spotify Music Graph — Análise Topológica Musical</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/d3@7.9.0/dist/d3.min.js"></script>
+  <script src="https://unpkg.com/force-graph@1.47.4/dist/force-graph.min.js"></script>
+  <style>
+    body { background-color: #090A0F; color: #F4F4F5; margin: 0; overflow: hidden; font-family: Inter, system-ui, sans-serif; }
+  </style>
+</head>
+<body class="relative flex h-screen w-screen overflow-hidden bg-[#090A0F] text-zinc-100">
+
+  <!-- Barra Superior de Controles -->
+  <header class="absolute top-4 left-4 z-20 flex flex-wrap items-center gap-3 rounded-2xl border border-zinc-800/80 bg-zinc-900/90 px-4 py-2.5 backdrop-blur-md shadow-2xl">
+    <div class="flex items-center gap-2 pr-2">
+      <span class="h-3 w-3 rounded-full bg-[#1DB954] animate-pulse"></span>
+      <h1 class="text-xs font-bold tracking-wider uppercase text-zinc-200">Spotify Music Graph</h1>
+    </div>
+
+    <!-- Alternador Unipartido vs Bipartido -->
+    <div class="flex rounded-lg bg-zinc-950 p-1 border border-zinc-800" id="mode-buttons">
+      <button data-mode="artists" class="mode-btn px-3 py-1 text-xs font-semibold rounded-md transition-all bg-emerald-500/20 text-[#1DB954] border border-[#1DB954]/50">
+        Artistas ↔ Artistas
+      </button>
+      <button data-mode="bipartite" class="mode-btn px-3 py-1 text-xs font-medium rounded-md transition-all text-zinc-400 hover:text-white">
+        Artistas ↔ Gêneros (Bipartido)
+      </button>
+    </div>
+
+    <!-- Seletor de Período -->
+    <div class="flex rounded-lg bg-zinc-950 p-1 border border-zinc-800" id="range-buttons">
+      <button data-range="short_term" class="range-btn px-2.5 py-1 text-xs font-medium rounded-md transition-all text-zinc-400 hover:text-white">4 Semanas</button>
+      <button data-range="medium_term" class="range-btn px-2.5 py-1 text-xs font-semibold rounded-md transition-all bg-[#1DB954] text-black shadow">6 Meses</button>
+      <button data-range="long_term" class="range-btn px-2.5 py-1 text-xs font-medium rounded-md transition-all text-zinc-400 hover:text-white">Histórico</button>
+    </div>
+
+    <!-- Limiar de Peso da Aresta -->
+    <div class="flex items-center gap-2 border-l border-zinc-800 pl-3">
+      <label class="text-xs text-zinc-400">
+        Limiar: <strong id="threshold-val" class="text-zinc-200">0.15</strong>
+      </label>
+      <input id="threshold-slider" type="range" min="0.05" max="0.65" step="0.02" value="0.15" class="w-24 accent-[#1DB954] cursor-pointer" />
+    </div>
+
+    <!-- Botão Modo Demo / Login Spotify -->
+    <div class="flex items-center gap-2 border-l border-zinc-800 pl-3">
+      <button id="demo-btn" class="px-2.5 py-1 text-xs font-medium rounded-md border border-amber-500/60 bg-amber-500/20 text-amber-300 transition-all">
+        Modo Demo Ativo
+      </button>
+      <a href="/auth/login" class="px-3 py-1 text-xs font-semibold rounded-md bg-[#1DB954] text-black hover:bg-[#1ed760] transition-all">
+        Conectar Spotify
+      </a>
+    </div>
+  </header>
+
+  <!-- Canvas Principal -->
+  <main class="flex-1 h-full relative">
+    <div id="graph-container" class="w-full h-full"></div>
+  </main>
+
+  <!-- Painel Lateral Analítico -->
+  <aside class="w-96 border-l border-zinc-800/80 bg-zinc-900/90 p-6 backdrop-blur-xl overflow-y-auto z-20 flex flex-col gap-6">
+    <div>
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-zinc-400">Topologia do Seu Gosto</h2>
+        <span id="badge-mode" class="rounded bg-zinc-800 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-400">Unipartido</span>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3 mb-4">
+        <div class="rounded-xl bg-zinc-950/90 p-3 border border-zinc-800/80">
+          <span class="text-xs text-zinc-400">Modularidade (Q)</span>
+          <p id="stat-modularity" class="text-xl font-bold text-[#1DB954]">-</p>
+        </div>
+        <div class="rounded-xl bg-zinc-950/90 p-3 border border-zinc-800/80">
+          <span class="text-xs text-zinc-400">Arestas Visíveis</span>
+          <p id="stat-links" class="text-xl font-bold text-zinc-100">-</p>
+        </div>
+      </div>
+
+      <div class="rounded-xl bg-gradient-to-r from-emerald-950/60 to-zinc-950 p-4 border border-emerald-800/40 mb-4">
+        <span class="text-[11px] font-semibold uppercase text-emerald-400">Artista Mais Conector (Bridge Node)</span>
+        <p id="bridge-name" class="text-base font-bold text-white mt-0.5">-</p>
+        <p id="bridge-score" class="text-xs text-zinc-400 mt-1">-</p>
+      </div>
+
+      <h3 class="text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">Seus Clusters Principais</h3>
+      <div id="clusters-list" class="space-y-2"></div>
+    </div>
+
+    <div id="node-inspector" class="border-t border-zinc-800 pt-5 text-xs text-zinc-500">
+      Passe o mouse ou clique em um nó (Artista ou Gênero) para destacar suas conexões diretas e inspecionar suas métricas de rede.
+    </div>
+  </aside>
+
+  <script>
+    const state = {
+      timeRange: "medium_term",
+      graphMode: "artists",
+      demoMode: true,
+      minWeight: 0.15,
+      rawData: { metadata: null, nodes: [], links: [] },
+      hoverNode: null,
+      selectedNode: null,
+      imageCache: {},
+    };
+
+    const container = document.getElementById("graph-container");
+    const Graph = ForceGraph()(container)
+      .backgroundColor("#090A0F")
+      .nodeRelSize(1)
+      .nodeVal((n) => n.val || 14)
+      .cooldownTicks(130);
+
+    // Verifica se o usuário já se autenticou no Spotify; se sim, desativa o Demo automaticamente
+    fetch("/auth/status")
+      .then((r) => r.json())
+      .then((s) => {
+        if (s.authenticated) {
+          state.demoMode = false;
+          updateDemoButtonUI();
+        }
+        loadGraph();
+      })
+      .catch(() => loadGraph());
+
+    function updateDemoButtonUI() {
+      const btn = document.getElementById("demo-btn");
+      if (state.demoMode) {
+        btn.textContent = "Modo Demo Ativo";
+        btn.className = "px-2.5 py-1 text-xs font-medium rounded-md border border-amber-500/60 bg-amber-500/20 text-amber-300 transition-all";
+      } else {
+        btn.textContent = "Usar Dados Demo";
+        btn.className = "px-2.5 py-1 text-xs font-medium rounded-md border border-zinc-700 bg-zinc-800 text-zinc-300 hover:text-white transition-all";
+      }
+    }
+
+    function loadGraph() {
+      const url = `/api/graph?time_range=${state.timeRange}&graph_mode=${state.graphMode}&limit=50&demo=${state.demoMode}`;
+      fetch(url)
+        .then(async (res) => {
+          if (!res.ok) {
+            // Se ainda não autenticado no Spotify, ativa o modo demo automaticamente com aviso
+            if (!state.demoMode) {
+              state.demoMode = true;
+              updateDemoButtonUI();
+              return fetch(`/api/graph?time_range=${state.timeRange}&graph_mode=${state.graphMode}&limit=50&demo=true`).then((r) => r.json());
+            }
+          }
+          return res.json();
+        })
+        .then((data) => {
+          state.rawData = data;
+          data.nodes.forEach((node) => {
+            if (node.image_url && !state.imageCache[node.id]) {
+              const img = new Image();
+              img.crossOrigin = "Anonymous";
+              img.src = node.image_url;
+              state.imageCache[node.id] = img;
+            }
+          });
+          state.selectedNode = null;
+          applyFilterAndRender();
+        });
+    }
+
+    function applyFilterAndRender() {
+      const { nodes, links, metadata } = state.rawData;
+      const validLinks = links.filter((l) => {
+        const w = l.weight || 0;
+        return w >= state.minWeight;
+      });
+
+      // Clonar nós e links para o D3
+      const clonedNodes = nodes.map((n) => ({ ...n }));
+      const clonedLinks = validLinks.map((l) => ({
+        ...l,
+        source: typeof l.source === "object" ? l.source.id : l.source,
+        target: typeof l.target === "object" ? l.target.id : l.target,
+      }));
+
+      Graph.graphData({ nodes: clonedNodes, links: clonedLinks });
+      Graph.d3Force("charge").strength(state.graphMode === "bipartite" ? -210 : -260);
+      Graph.d3Force("link").distance((link) =>
+        state.graphMode === "bipartite" ? 85 : 115 * (1.15 - (link.weight || 0.2))
+      );
+      Graph.d3Force("collide", d3.forceCollide((n) => (n.val || 12) + 8));
+
+      // Atualizar painel lateral
+      if (metadata) {
+        document.getElementById("badge-mode").textContent =
+          state.graphMode === "bipartite" ? "Bipartido" : "Unipartido";
+        document.getElementById("stat-modularity").textContent = metadata.modularity_score ?? "-";
+        document.getElementById("stat-links").textContent = clonedLinks.length;
+        if (metadata.bridge_artist) {
+          document.getElementById("bridge-name").textContent = metadata.bridge_artist.name;
+          document.getElementById("bridge-score").textContent =
+            `Maior Centralidade de Intermediação (Betweenness: ${metadata.bridge_artist.betweenness_centrality})`;
+        }
+
+        const cList = document.getElementById("clusters-list");
+        cList.innerHTML = (metadata.clusters || [])
+          .slice(0, 5)
+          .map(
+            (c) => `
+          <div class="flex items-center justify-between rounded-lg bg-zinc-950/70 px-3 py-2 border border-zinc-800/60">
+            <div class="flex items-center gap-2.5">
+              <span class="h-3 w-3 rounded-full shrink-0" style="background-color: ${c.color}"></span>
+              <span class="text-xs font-medium text-zinc-200 capitalize">${c.dominant_genres.join(" • ")}</span>
+            </div>
+            <span class="text-xs font-semibold text-zinc-400">${c.artist_count} art.</span>
+          </div>`
+          )
+          .join("");
+      }
+    }
+
+    function getActiveHighlights() {
+      const active = state.hoverNode || state.selectedNode;
+      const hNodes = new Set();
+      const hLinks = new Set();
+      if (!active) return { active: null, hNodes, hLinks };
+
+      hNodes.add(active.id);
+      const { links } = Graph.graphData();
+      links.forEach((l) => {
+        const sId = typeof l.source === "object" ? l.source.id : l.source;
+        const tId = typeof l.target === "object" ? l.target.id : l.target;
+        if (sId === active.id || tId === active.id) {
+          hNodes.add(sId);
+          hNodes.add(tId);
+          hLinks.add(l);
+        }
+      });
+      return { active, hNodes, hLinks };
+    }
+
+    function renderInspector(node) {
+      const box = document.getElementById("node-inspector");
+      if (!node) {
+        box.innerHTML =
+          "Passe o mouse ou clique em um nó (Artista ou Gênero) para destacar suas conexões diretas e inspecionar suas métricas de rede.";
+        return;
+      }
+
+      const avatarHtml = node.image_url
+        ? `<img src="${node.image_url}" class="h-16 w-16 rounded-full object-cover border-2" style="border-color: ${node.color}" />`
+        : `<div class="flex h-14 w-14 items-center justify-center rounded-xl border-2 bg-zinc-950 text-sm font-bold" style="border-color: ${node.color}; color: ${node.color}">${node.node_type === "genre" ? "#" : node.name.slice(0, 2)}</div>`;
+
+      const subtitle =
+        node.node_type === "genre"
+          ? `Hub de Gênero (${node.connected_artists_count} artistas)`
+          : `Rank #${node.affinity_rank} no seu perfil`;
+
+      const genresHtml =
+        node.node_type === "artist"
+          ? `<div class="mt-4">
+              <h4 class="text-xs font-semibold uppercase text-zinc-400 mb-2">Gêneros Associados</h4>
+              <div class="flex flex-wrap gap-1.5">
+                ${(node.genres || [])
+                  .map(
+                    (g) =>
+                      `<span class="rounded-full bg-zinc-800 px-2.5 py-0.5 text-xs text-zinc-200 capitalize">${g}</span>`
+                  )
+                  .join("")}
+              </div>
+            </div>`
+          : "";
+
+      const tracksHtml =
+        node.node_type === "artist" && node.top_tracks && node.top_tracks.length > 0
+          ? `<div class="mt-4">
+              <h4 class="text-xs font-semibold uppercase text-zinc-400 mb-2">Faixas no Seu Perfil</h4>
+              <ul class="space-y-2">
+                ${node.top_tracks
+                  .map(
+                    (t) => `<li class="flex items-center gap-2.5 rounded-lg bg-zinc-950/80 p-2 border border-zinc-800/60">
+                      <span class="text-xs font-medium text-zinc-200 truncate">🎵 ${t.name}</span>
+                    </li>`
+                  )
+                  .join("")}
+              </ul>
+            </div>`
+          : "";
+
+      box.innerHTML = `
+        <div class="flex items-center gap-4">
+          ${avatarHtml}
+          <div>
+            <span class="text-xs font-medium text-zinc-400">${subtitle}</span>
+            <h3 class="text-lg font-bold text-white">${node.name}</h3>
+            <span class="text-xs text-zinc-400">Centralidade de Grau: ${node.metrics?.degree_centrality ?? 0}</span>
+          </div>
+        </div>
+        ${genresHtml}
+        ${tracksHtml}
+      `;
+    }
+
+    Graph.nodeCanvasObject((node, ctx, globalScale) => {
+      if (node.x === undefined || node.y === undefined) return;
+      const { active, hNodes } = getActiveHighlights();
+      const isHighlighted = !active || hNodes.has(node.id);
+      const isFocused = active && active.id === node.id;
+      const radius = node.val || 14;
+
+      ctx.save();
+      ctx.globalAlpha = isHighlighted ? 1.0 : 0.14;
+      if (isFocused) {
+        ctx.shadowColor = node.color;
+        ctx.shadowBlur = 22;
+      }
+
+      if (node.node_type === "genre") {
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const angle = (Math.PI / 3) * i - Math.PI / 6;
+          const hx = node.x + radius * Math.cos(angle);
+          const hy = node.y + radius * Math.sin(angle);
+          if (i === 0) ctx.moveTo(hx, hy);
+          else ctx.lineTo(hx, hy);
+        }
+        ctx.closePath();
+        ctx.fillStyle = "#18181B";
+        ctx.fill();
+        ctx.lineWidth = isFocused ? 3 / globalScale : 2 / globalScale;
+        ctx.strokeStyle = node.color || "#1DB954";
+        ctx.stroke();
+
+        const fontSize = Math.max(9.5 / globalScale, 3.2);
+        ctx.font = `700 ${fontSize}px Inter, system-ui, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = node.color || "#1DB954";
+        ctx.fillText(`# ${node.name}`, node.x, node.y);
+      } else {
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
+        ctx.closePath();
+        ctx.save();
+        ctx.clip();
+
+        const img = state.imageCache[node.id];
+        if (img && img.complete && img.naturalWidth !== 0) {
+          ctx.drawImage(img, node.x - radius, node.y - radius, radius * 2, radius * 2);
+        } else {
+          ctx.fillStyle = "#18181B";
+          ctx.fill();
+          const initials = node.name
+            .split(" ")
+            .slice(0, 2)
+            .map((w) => w[0])
+            .join("")
+            .toUpperCase();
+          ctx.font = `700 ${Math.max(radius * 0.65, 4)}px Inter, system-ui, sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillStyle = node.color || "#1DB954";
+          ctx.fillText(initials, node.x, node.y);
+        }
+        ctx.restore();
+
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
+        ctx.lineWidth = isFocused ? 3.5 / globalScale : 2.2 / globalScale;
+        ctx.strokeStyle = node.color || "#1DB954";
+        ctx.stroke();
+
+        if (globalScale >= 1.1 || (active && isHighlighted)) {
+          const fontSize = Math.max(11 / globalScale, 3.5);
+          ctx.font = `600 ${fontSize}px Inter, system-ui, sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "top";
+          ctx.fillStyle = "#F9FAFB";
+          ctx.fillText(node.name, node.x, node.y + radius + 4 / globalScale);
+        }
+      }
+      ctx.restore();
+    })
+      .nodePointerAreaPaint((node, color, ctx) => {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, (node.val || 14) + 2, 0, 2 * Math.PI, false);
+        ctx.fill();
+      })
+      .onNodeHover((node) => {
+        state.hoverNode = node || null;
+        renderInspector(state.hoverNode || state.selectedNode);
+      })
+      .onNodeClick((node) => {
+        state.selectedNode = state.selectedNode && state.selectedNode.id === node.id ? null : node;
+        renderInspector(state.selectedNode);
+        Graph.centerAt(node.x, node.y, 600);
+        Graph.zoom(2.1, 600);
+      })
+      .onBackgroundClick(() => {
+        state.selectedNode = null;
+        renderInspector(null);
+      })
+      .linkWidth((link) => {
+        const { hLinks } = getActiveHighlights();
+        return hLinks.has(link) ? (link.weight || 0.2) * 4.5 : (link.weight || 0.2) * 1.8;
+      })
+      .linkColor((link) => {
+        const { active, hLinks } = getActiveHighlights();
+        if (!active) return "rgba(161, 161, 170, 0.22)";
+        return hLinks.has(link) ? "rgba(29, 185, 84, 0.88)" : "rgba(63, 63, 70, 0.06)";
+      })
+      .linkDirectionalParticles((link) => {
+        const { hLinks } = getActiveHighlights();
+        return hLinks.has(link) ? 2 : 0;
+      })
+      .linkDirectionalParticleWidth(3);
+
+    // Eventos da UI
+    document.querySelectorAll(".mode-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.graphMode = btn.dataset.mode;
+        document.querySelectorAll(".mode-btn").forEach((b) => {
+          b.className =
+            b.dataset.mode === state.graphMode
+              ? "mode-btn px-3 py-1 text-xs font-semibold rounded-md transition-all bg-emerald-500/20 text-[#1DB954] border border-[#1DB954]/50"
+              : "mode-btn px-3 py-1 text-xs font-medium rounded-md transition-all text-zinc-400 hover:text-white";
+        });
+        loadGraph();
+      });
+    });
+
+    document.querySelectorAll(".range-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.timeRange = btn.dataset.range;
+        document.querySelectorAll(".range-btn").forEach((b) => {
+          b.className =
+            b.dataset.range === state.timeRange
+              ? "range-btn px-2.5 py-1 text-xs font-semibold rounded-md transition-all bg-[#1DB954] text-black shadow"
+              : "range-btn px-2.5 py-1 text-xs font-medium rounded-md transition-all text-zinc-400 hover:text-white";
+        });
+        loadGraph();
+      });
+    });
+
+    document.getElementById("threshold-slider").addEventListener("input", (e) => {
+      state.minWeight = parseFloat(e.target.value);
+      document.getElementById("threshold-val").textContent = state.minWeight.toFixed(2);
+      applyFilterAndRender();
+    });
+
+    document.getElementById("demo-btn").addEventListener("click", () => {
+      state.demoMode = !state.demoMode;
+      updateDemoButtonUI();
+      loadGraph();
+    });
+
+    window.addEventListener("resize", () => {
+      Graph.width(container.clientWidth).height(container.clientHeight);
+    });
+  </script>
+</body>
+</html>

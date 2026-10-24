@@ -1,0 +1,270 @@
+openapi: 3.1.0
+info:
+  title: Spotify Music Graph API
+  version: 1.0.0
+  description: >
+    Especificação OpenAPI 3.1.0 do sistema **Spotify Music Graph**.
+    Realiza autenticação OAuth 2.0 com loopback IP explícito (`127.0.0.1`), extrai o consumo musical
+    do usuário via Spotify Web API e calcula grafos Unipartidos (Artistas ↔ Artistas) e Bipartidos
+    (Artistas ↔ Gêneros) com detecção de comunidades Louvain e métricas de centralidade.
+servers:
+  - url: http://127.0.0.1:8000
+    description: Servidor Local de Desenvolvimento (Loopback IPv4 exigido pelo Spotify)
+
+paths:
+  /auth/login:
+    get:
+      summary: Inicia o fluxo OAuth 2.0 Authorization Code no Spotify
+      operationId: loginSpotify
+      tags:
+        - Autenticação
+      responses:
+        "307":
+          description: Redireciona o usuário para https://accounts.spotify.com/authorize
+
+  /auth/callback:
+    get:
+      summary: Callback OAuth 2.0 que recebe o código de autorização do Spotify
+      operationId: callbackSpotify
+      tags:
+        - Autenticação
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Código de autorização retornado pelo Spotify
+      responses:
+        "307":
+          description: Token armazenado com sucesso; redireciona para o Frontend
+        "400":
+          description: Falha ao obter o token OAuth 2.0
+
+  /auth/status:
+    get:
+      summary: Verifica se há uma sessão Spotify OAuth válida em cache
+      operationId: statusSpotify
+      tags:
+        - Autenticação
+      responses:
+        "200":
+          description: Status de autenticação
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authenticated:
+                    type: boolean
+                    example: true
+
+  /api/graph:
+    get:
+      summary: Extrai dados musicais e retorna o grafo calculado (Unipartido ou Bipartido)
+      operationId: getMusicGraph
+      tags:
+        - Grafo Musical
+      parameters:
+        - name: time_range
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [short_term, medium_term, long_term]
+            default: medium_term
+          description: Período de consumo (4 semanas, 6 meses ou histórico completo)
+        - name: graph_mode
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [artists, bipartite]
+            default: artists
+          description: Modo do grafo (`artists` para Artista↔Artista ou `bipartite` para Artista↔Gênero)
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 10
+            maximum: 50
+            default: 50
+          description: Quantidade máxima de top artistas extraídos
+        - name: demo
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Quando `true`, retorna o dataset de demonstração sem exigir login OAuth
+      responses:
+        "200":
+          description: Estrutura completa do grafo com nós, arestas e metadados analíticos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphResponse"
+        "401":
+          description: Usuário não autenticado no Spotify
+
+components:
+  schemas:
+    GraphResponse:
+      type: object
+      required:
+        - metadata
+        - nodes
+        - links
+      properties:
+        metadata:
+          $ref: "#/components/schemas/GraphMetadata"
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphNode"
+        links:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphLink"
+
+    GraphMetadata:
+      type: object
+      properties:
+        graph_mode:
+          type: string
+          enum: [artists, bipartite]
+        time_range:
+          type: string
+          enum: [short_term, medium_term, long_term]
+        total_nodes:
+          type: integer
+          example: 50
+        total_links:
+          type: integer
+          example: 112
+        modularity_score:
+          type: number
+          format: float
+          example: 0.64
+        bridge_artist:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            betweenness_centrality:
+              type: number
+              format: float
+        clusters:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClusterSummary"
+
+    ClusterSummary:
+      type: object
+      properties:
+        cluster_id:
+          type: integer
+        color:
+          type: string
+          example: "#1DB954"
+        dominant_genres:
+          type: array
+          items:
+            type: string
+        artist_count:
+          type: integer
+
+    GraphNode:
+      type: object
+      required:
+        - id
+        - name
+        - node_type
+        - val
+        - cluster_id
+        - color
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        node_type:
+          type: string
+          enum: [artist, genre]
+        affinity_rank:
+          type: [integer, "null"]
+        affinity_score:
+          type: number
+          format: float
+        global_popularity:
+          type: integer
+        val:
+          type: number
+          format: float
+        cluster_id:
+          type: integer
+        color:
+          type: string
+        image_url:
+          type: [string, "null"]
+        genres:
+          type: array
+          items:
+            type: string
+        top_tracks:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              album_image:
+                type: [string, "null"]
+        metrics:
+          type: object
+          properties:
+            degree_centrality:
+              type: number
+              format: float
+            betweenness_centrality:
+              type: number
+              format: float
+
+    GraphLink:
+      type: object
+      required:
+        - source
+        - target
+        - weight
+      properties:
+        source:
+          type: string
+        target:
+          type: string
+        weight:
+          type: number
+          format: float
+        link_type:
+          type: string
+          enum: [artist-artist, artist-genre]
+        components:
+          type: object
+          properties:
+            genre_similarity:
+              type: number
+              format: float
+            direct_collaboration:
+              type: number
+              format: float
+            co_listening:
+              type: number
+              format: float
+        shared_genres:
+          type: array
+          items:
+            type: string
