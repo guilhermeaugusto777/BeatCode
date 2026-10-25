@@ -1,19 +1,23 @@
 import os
+import secrets
+import time
 from collections import defaultdict
-from typing import Dict, List, Any, Literal
+from typing import Dict, List, Any, Literal, Optional
+from pathlib import Path
 
 import numpy as np
 import networkx as nx
 from networkx.algorithms import community
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from pathlib import Path
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import RedirectResponse, FileResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import RedirectResponse, FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
+from spotipy.cache_handler import MemoryCacheHandler
+from spotipy.exceptions import SpotifyException
 
 load_dotenv()
 
@@ -23,13 +27,38 @@ app = FastAPI(
     version="1.0.0",
 )
 
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://127.0.0.1:8000")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://127.0.0.1:3000")
 INDEX_HTML_PATH = Path(__file__).parent / "index.html"
+SESSION_COOKIE_NAME = "beatcode_session"
+SESSION_TTL_SECONDS = 24 * 60 * 60  # 24 horas
+
+# Sessões OAuth gerenciadas exclusivamente em memória no servidor
+# Estrutura:
+# {
+#     session_id: {
+#         "cache_handler": MemoryCacheHandler(),
+#         "state": str,  # state CSRF temporário durante o fluxo de autorização
+#         "created_at": float,
+#     }
+# }
+SESSIONS: Dict[str, Dict[str, Any]] = {}
+
+
+def cleanup_expired_sessions() -> None:
+    """Limpeza oportunista de sessões em memória com mais de 24 horas de existência."""
+    now = time.time()
+    expired_ids = [
+        s_id for s_id, s_data in SESSIONS.items()
+        if now - s_data.get("created_at", 0) > SESSION_TTL_SECONDS
+    ]
+    for s_id in expired_ids:
+        SESSIONS.pop(s_id, None)
 
 
 @app.get("/", include_in_schema=False)
 def serve_frontend():
     return FileResponse(INDEX_HTML_PATH)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,6 +67,7 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://[::1]:3000",
         "http://localhost:3000",
+        "http://127.0.0.1:8000",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -58,61 +88,207 @@ CLUSTER_PALETTE = [
 ]
 
 
-def get_spotify_oauth() -> SpotifyOAuth:
+def get_spotify_oauth(cache_handler: Optional[MemoryCacheHandler] = None) -> SpotifyOAuth:
     client_id = os.getenv("SPOTIPY_CLIENT_ID")
     client_secret = os.getenv("SPOTIPY_CLIENT_SECRET")
     redirect_uri = os.getenv("SPOTIPY_REDIRECT_URI", "http://127.0.0.1:8000/auth/callback")
 
+    # RFC 8252 / Políticas do Spotify: Proibir expressamente 'localhost'
+    if "localhost" in redirect_uri.lower():
+        raise HTTPException(
+            status_code=500,
+            detail="SPOTIPY_REDIRECT_URI inválido: o uso de 'localhost' é expressamente proibido pela Web API do Spotify (RFC 8252). Utilize o IP de loopback explícito '127.0.0.1' (ex: http://127.0.0.1:8000/auth/callback) no backend/.env.",
+        )
+
     if not client_id or not client_secret or client_id == "seu_client_id_aqui":
         raise HTTPException(
-            status_code=400,
+            status_code=500,
             detail="Configure SPOTIPY_CLIENT_ID e SPOTIPY_CLIENT_SECRET no arquivo backend/.env",
         )
+
+    if cache_handler is None:
+        cache_handler = MemoryCacheHandler()
 
     return SpotifyOAuth(
         client_id=client_id,
         client_secret=client_secret,
         redirect_uri=redirect_uri,
         scope=SCOPES,
-        cache_path=".spotify_token_cache",
+        cache_handler=cache_handler,
         show_dialog=False,
     )
 
 
 @app.get("/auth/login")
-def login():
+def login(request: Request):
+    cleanup_expired_sessions()
     sp_oauth = get_spotify_oauth()
-    auth_url = sp_oauth.get_authorize_url()
-    return RedirectResponse(auth_url)
+    state = secrets.token_urlsafe(32)
+
+    # Identifica ou cria sessão em memória vinculada a cookie HttpOnly
+    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    if not session_id or session_id not in SESSIONS:
+        session_id = secrets.token_urlsafe(32)
+        SESSIONS[session_id] = {
+            "cache_handler": MemoryCacheHandler(),
+            "created_at": time.time(),
+        }
+
+    SESSIONS[session_id]["state"] = state
+
+    is_https = request.url.scheme == "https" or os.getenv("ENVIRONMENT") == "production"
+    auth_url = sp_oauth.get_authorize_url(state=state)
+    response = RedirectResponse(auth_url, status_code=307)
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=session_id,
+        httponly=True,
+        samesite="lax",
+        secure=is_https,
+        path="/",
+    )
+    return response
 
 
 @app.get("/auth/callback")
-def callback(code: str):
-    sp_oauth = get_spotify_oauth()
+def callback(
+    code: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+    error: Optional[str] = Query(None),
+    request: Request = None,
+):
+    cleanup_expired_sessions()
+    if error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Erro de autorização retornado pelo Spotify: {error}",
+        )
+
+    if not code:
+        raise HTTPException(
+            status_code=400,
+            detail="Código de autorização não fornecido pelo Spotify.",
+        )
+
+    session_id = request.cookies.get(SESSION_COOKIE_NAME) if request else None
+    if not session_id or session_id not in SESSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Sessão não encontrada ou expirada. Inicie o login novamente.",
+        )
+
+    session_data = SESSIONS[session_id]
+    expected_state = session_data.get("state")
+    if not state or not expected_state or not secrets.compare_digest(state, expected_state):
+        raise HTTPException(
+            status_code=400,
+            detail="Parâmetro 'state' inválido ou divergente (proteção CSRF).",
+        )
+
+    # State verificado com sucesso - invalidar para evitar reutilização (replay attacks)
+    session_data.pop("state", None)
+
+    cache_handler = session_data["cache_handler"]
+    sp_oauth = get_spotify_oauth(cache_handler=cache_handler)
     token_info = sp_oauth.get_access_token(code, as_dict=True)
     if not token_info:
-        raise HTTPException(status_code=400, detail="Falha ao obter token OAuth 2.0 do Spotify.")
-    return RedirectResponse(FRONTEND_URL)
+        raise HTTPException(
+            status_code=400,
+            detail="Falha ao obter token OAuth 2.0 do Spotify.",
+        )
+
+    # Garante persistência do token no MemoryCacheHandler do servidor
+    if isinstance(token_info, dict):
+        cache_handler.save_token_to_cache(token_info)
+
+    is_https = bool(request and (request.url.scheme == "https" or os.getenv("ENVIRONMENT") == "production"))
+    response = RedirectResponse(FRONTEND_URL, status_code=307)
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=session_id,
+        httponly=True,
+        samesite="lax",
+        secure=is_https,
+        path="/",
+    )
+    return response
 
 
 @app.get("/auth/status")
-def auth_status():
+def auth_status(request: Request):
+    cleanup_expired_sessions()
     try:
-        sp_oauth = get_spotify_oauth()
-        token_info = sp_oauth.validate_token(sp_oauth.cache_handler.get_cached_token())
+        session_id = request.cookies.get(SESSION_COOKIE_NAME)
+        if not session_id or session_id not in SESSIONS:
+            return {"authenticated": False}
+
+        session_data = SESSIONS[session_id]
+        cache_handler = session_data.get("cache_handler")
+        if not cache_handler:
+            return {"authenticated": False}
+
+        cached_token = cache_handler.get_cached_token()
+        if not cached_token:
+            return {"authenticated": False}
+
+        sp_oauth = get_spotify_oauth(cache_handler=cache_handler)
+        token_info = sp_oauth.validate_token(cached_token)
         return {"authenticated": bool(token_info)}
     except Exception:
         return {"authenticated": False}
 
 
-def get_spotify_client() -> spotipy.Spotify:
-    sp_oauth = get_spotify_oauth()
-    token_info = sp_oauth.validate_token(sp_oauth.cache_handler.get_cached_token())
-    if not token_info:
+@app.post("/auth/logout")
+@app.get("/auth/logout")
+def logout(request: Request):
+    cleanup_expired_sessions()
+    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    if session_id and session_id in SESSIONS:
+        del SESSIONS[session_id]
+
+    response = JSONResponse(
+        content={"message": "Sessão encerrada com sucesso.", "authenticated": False}
+    )
+    response.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
+    return response
+
+
+def get_spotify_client(request: Request) -> spotipy.Spotify:
+    cleanup_expired_sessions()
+    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    if not session_id or session_id not in SESSIONS:
         raise HTTPException(
             status_code=401,
             detail="Usuário não autenticado no Spotify. Acesse http://127.0.0.1:8000/auth/login",
         )
+
+    session_data = SESSIONS[session_id]
+    cache_handler = session_data.get("cache_handler")
+    if not cache_handler:
+        raise HTTPException(
+            status_code=401,
+            detail="Sessão inválida. Acesse http://127.0.0.1:8000/auth/login",
+        )
+
+    sp_oauth = get_spotify_oauth(cache_handler=cache_handler)
+    cached_token = cache_handler.get_cached_token()
+    if not cached_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Token ausente na sessão. Acesse http://127.0.0.1:8000/auth/login",
+        )
+
+    try:
+        token_info = sp_oauth.validate_token(cached_token)
+    except Exception:
+        token_info = None
+
+    if not token_info:
+        raise HTTPException(
+            status_code=401,
+            detail="Sessão expirada ou token revogado no Spotify. Acesse http://127.0.0.1:8000/auth/login",
+        )
+
     return spotipy.Spotify(auth=token_info["access_token"])
 
 
@@ -190,7 +366,19 @@ def compute_unipartite_artist_graph(
     """
     n = len(artists)
     if n == 0:
-        return {"metadata": {}, "nodes": [], "links": []}
+        return {
+            "metadata": {
+                "graph_mode": "artists",
+                "time_range": time_range,
+                "total_nodes": 0,
+                "total_links": 0,
+                "modularity_score": 0.0,
+                "bridge_artist": None,
+                "clusters": [],
+            },
+            "nodes": [],
+            "links": [],
+        }
 
     artist_idx = {a["id"]: i for i, a in enumerate(artists)}
     artist_top_tracks, collab_matrix = extract_artist_tracks_and_collabs(
@@ -356,7 +544,20 @@ def compute_unipartite_artist_graph(
             },
         })
 
-    bridge_node = max(nodes_payload, key=lambda x: x["metrics"]["betweenness_centrality"])
+    bridge_node = max(
+        nodes_payload,
+        key=lambda x: x["metrics"]["betweenness_centrality"],
+        default=None,
+    )
+    bridge_payload = (
+        {
+            "id": bridge_node["id"],
+            "name": bridge_node["name"],
+            "betweenness_centrality": bridge_node["metrics"]["betweenness_centrality"],
+        }
+        if bridge_node
+        else None
+    )
 
     return {
         "metadata": {
@@ -365,11 +566,7 @@ def compute_unipartite_artist_graph(
             "total_nodes": len(nodes_payload),
             "total_links": len(links_payload),
             "modularity_score": modularity_val,
-            "bridge_artist": {
-                "id": bridge_node["id"],
-                "name": bridge_node["name"],
-                "betweenness_centrality": bridge_node["metrics"]["betweenness_centrality"],
-            },
+            "bridge_artist": bridge_payload,
             "clusters": clusters_summary,
         },
         "nodes": nodes_payload,
@@ -391,7 +588,19 @@ def compute_bipartite_artist_genre_graph(
     """
     n = len(artists)
     if n == 0:
-        return {"metadata": {}, "nodes": [], "links": []}
+        return {
+            "metadata": {
+                "graph_mode": "bipartite",
+                "time_range": time_range,
+                "total_nodes": 0,
+                "total_links": 0,
+                "modularity_score": 0.0,
+                "bridge_artist": None,
+                "clusters": [],
+            },
+            "nodes": [],
+            "links": [],
+        }
 
     artist_top_tracks, _ = extract_artist_tracks_and_collabs(artists, top_tracks, saved_tracks)
 
@@ -537,7 +746,16 @@ def compute_bipartite_artist_genre_graph(
     bridge_node = max(
         artist_only_nodes,
         key=lambda x: x["metrics"]["betweenness_centrality"],
-        default={"id": "", "name": "N/A", "metrics": {"betweenness_centrality": 0.0}},
+        default=None,
+    )
+    bridge_payload = (
+        {
+            "id": bridge_node["id"],
+            "name": bridge_node["name"],
+            "betweenness_centrality": bridge_node["metrics"]["betweenness_centrality"],
+        }
+        if bridge_node
+        else None
     )
 
     return {
@@ -547,11 +765,7 @@ def compute_bipartite_artist_genre_graph(
             "total_nodes": len(nodes_payload),
             "total_links": len(links_payload),
             "modularity_score": modularity_val,
-            "bridge_artist": {
-                "id": bridge_node["id"],
-                "name": bridge_node["name"],
-                "betweenness_centrality": bridge_node["metrics"]["betweenness_centrality"],
-            },
+            "bridge_artist": bridge_payload,
             "clusters": clusters_summary,
         },
         "nodes": nodes_payload,
@@ -607,6 +821,7 @@ def get_demo_dataset() -> Dict[str, Any]:
 
 @app.get("/api/graph")
 def get_music_graph(
+    request: Request,
     time_range: Literal["short_term", "medium_term", "long_term"] = Query("medium_term"),
     graph_mode: Literal["artists", "bipartite"] = Query("artists"),
     limit: int = Query(50, ge=10, le=50),
@@ -619,16 +834,95 @@ def get_music_graph(
         recent_tracks = demo_data["recent_tracks"]
         saved_tracks = demo_data["saved_tracks"]
     else:
-        sp = get_spotify_client()
-        top_artists_resp = sp.current_user_top_artists(limit=limit, time_range=time_range)
-        top_tracks_resp = sp.current_user_top_tracks(limit=50, time_range=time_range)
-        recent_resp = sp.current_user_recently_played(limit=50)
-        saved_resp = sp.current_user_saved_tracks(limit=50)
+        try:
+            sp = get_spotify_client(request)
+            top_artists_resp = sp.current_user_top_artists(limit=limit, time_range=time_range)
+            artists = top_artists_resp.get("items", []) if top_artists_resp else []
 
-        artists = top_artists_resp.get("items", [])
-        top_tracks = top_tracks_resp.get("items", [])
-        recent_tracks = recent_resp.get("items", [])
-        saved_tracks = saved_resp.get("items", [])
+            # Degradação graciosa: falhas em fontes secundárias não interrompem a geração do grafo
+            try:
+                top_tracks_resp = sp.current_user_top_tracks(limit=50, time_range=time_range)
+                top_tracks = top_tracks_resp.get("items", []) if top_tracks_resp else []
+            except Exception:
+                top_tracks = []
+
+            try:
+                recent_resp = sp.current_user_recently_played(limit=50)
+                recent_tracks = recent_resp.get("items", []) if recent_resp else []
+            except Exception:
+                recent_tracks = []
+
+            try:
+                saved_resp = sp.current_user_saved_tracks(limit=50)
+                saved_tracks = saved_resp.get("items", []) if saved_resp else []
+            except Exception:
+                saved_tracks = []
+
+        except SpotifyException as e:
+            session_id = request.cookies.get(SESSION_COOKIE_NAME)
+            err_msg_lower = (str(e.msg or "") + " " + str(getattr(e, "reason", "") or "") + " " + str(e)).lower()
+            is_quota = "quota" in err_msg_lower
+
+            if e.http_status == 401:
+                if session_id and session_id in SESSIONS:
+                    del SESSIONS[session_id]
+                resp = JSONResponse(
+                    status_code=401,
+                    content={
+                        "detail": "Sessão expirada ou token revogado no Spotify. Por favor, autentique-se novamente em /auth/login."
+                    },
+                )
+                resp.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
+                return resp
+            elif e.http_status == 403:
+                if is_quota:
+                    raise HTTPException(
+                        status_code=403,
+                        detail=(
+                            "Cota de requisições da aplicação excedida no Spotify Developer Dashboard (QUOTA_EXCEEDED). "
+                            "Verifique o consumo de quota ou solicite extensão de limites nas configurações do app no Spotify Developer Dashboard."
+                        ),
+                    )
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "Acesso negado pela API do Spotify (Development Mode). "
+                        "Certifique-se de que a conta possui Spotify Premium ativo e que o e-mail "
+                        "está cadastrado na allowlist (User Management, até 5 usuários) do Spotify Developer Dashboard."
+                    ),
+                )
+            elif e.http_status == 429:
+                retry_after = "60"
+                if e.headers:
+                    retry_after = e.headers.get("Retry-After") or e.headers.get("retry-after") or "60"
+                retry_val = int(retry_after) if str(retry_after).isdigit() else retry_after
+
+                if is_quota:
+                    detail_msg = (
+                        "Cota de requisições da aplicação excedida no Spotify Developer Dashboard (QUOTA_EXCEEDED). "
+                        f"Tente novamente em {retry_after} segundos ou consulte os limites no Spotify Developer Dashboard."
+                    )
+                else:
+                    detail_msg = f"Limite de requisições do Spotify excedido (Rate Limit). Tente novamente em {retry_after} segundos."
+
+                return JSONResponse(
+                    status_code=429,
+                    content={
+                        "detail": detail_msg,
+                        "retry_after": retry_val,
+                    },
+                    headers={"Retry-After": str(retry_after)},
+                )
+            else:
+                if is_quota:
+                    raise HTTPException(
+                        status_code=e.http_status or 502,
+                        detail="Cota da aplicação excedida no Spotify Developer Dashboard (QUOTA_EXCEEDED).",
+                    )
+                raise HTTPException(
+                    status_code=e.http_status or 502,
+                    detail=f"Erro na comunicação com a Web API do Spotify: {e.msg}",
+                )
 
     if graph_mode == "bipartite":
         return compute_bipartite_artist_genre_graph(

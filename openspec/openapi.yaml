@@ -21,6 +21,8 @@ paths:
       responses:
         "307":
           description: Redireciona o usuário para https://accounts.spotify.com/authorize
+        "500":
+          description: Credenciais de API do Spotify ausentes ou mal configuradas
 
   /auth/callback:
     get:
@@ -35,11 +37,17 @@ paths:
           schema:
             type: string
           description: Código de autorização retornado pelo Spotify
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Parâmetro state para validação de segurança contra ataques CSRF
       responses:
         "307":
-          description: Token armazenado com sucesso; redireciona para o Frontend
+          description: Token armazenado no servidor com sucesso; define cookie de sessão HttpOnly e redireciona para o Frontend
         "400":
-          description: Falha ao obter o token OAuth 2.0
+          description: Falha ao obter o token OAuth 2.0 ou parâmetro state inválido/divergente (CSRF)
 
   /auth/status:
     get:
@@ -58,6 +66,16 @@ paths:
                   authenticated:
                     type: boolean
                     example: true
+
+  /auth/logout:
+    post:
+      summary: Encerra a sessão ativa no servidor e limpa o cookie HttpOnly
+      operationId: logoutSpotify
+      tags:
+        - Autenticação
+      responses:
+        "200":
+          description: Sessão encerrada com sucesso
 
   /api/graph:
     get:
@@ -106,7 +124,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/GraphResponse"
         "401":
-          description: Usuário não autenticado no Spotify
+          description: Usuário não autenticado ou sessão expirada no Spotify
+        "403":
+          description: Acesso proibido pela Web API do Spotify (regras do Development Mode / conta Premium / allowlist de 5 usuários)
+        "429":
+          description: Limite de requisições do Spotify excedido (Rate Limit) com cabeçalho Retry-After
 
 components:
   schemas:

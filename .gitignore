@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 .spotify_token_cache
+.cache*
 *.pem
 *.key
 
