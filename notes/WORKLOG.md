@@ -28,3 +28,14 @@
 - Garantido funcionamento pleno do modo demo sem credenciais.
 - Criada suíte automatizada em `backend/tests/test_spotify_api.py` com 24 testes unitários e de integração (100% de aprovação no pytest).
 - Revisões formais de QA (Agente 7) e Segurança/DevOps (Agente 8) aprovadas sem pendências impeditivas.
+
+## 2026-10-24 — Conclusão do BC-003 (Visualização 3D Interativa e Controles de Câmera)
+
+- Instaladas as dependências `react-force-graph-3d` (v1.29.2) e `three` (v0.186.1) sob licença MIT permissiva.
+- Implementada visualização 3D como padrão em `frontend/components/SpotifyConstellationGraph.jsx` via Next.js Dynamic Import com `{ ssr: false }`.
+- Renderização Three.js personalizada: esferas texturizadas com fotos/cores da comunidade para Artistas e icosaedros poliédricos facetados para Gêneros.
+- Controles de câmera explícitos em HUD flutuante: Zoom In, Zoom Out, Orbit/Auto-rotate, Enquadrar Grafo (`zoomToFit`) e Resetar Visão, além de orbit/pan/zoom nativos via mouse e foco animado no clique de nós.
+- Recursos de acessibilidade: Drawer modal de busca pesquisável por teclado com atalho global `/`, navegação com foco visual e suporte estrito a `prefers-reduced-motion` (desativação de rotação contínua e transições imediatas de câmera).
+- Mecanismo de resiliência: Detecção de suporte a WebGL com fallback automático e banner informativo para Canvas 2D.
+- Validação técnica: `npm run build` executado com código 0 (sucesso absoluto).
+- Revisões formais de QA (Agente 7) e Segurança/DevOps (Agente 8) aprovadas com nota máxima.
