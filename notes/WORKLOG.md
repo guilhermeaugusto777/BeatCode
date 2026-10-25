@@ -39,3 +39,12 @@
 - Mecanismo de resiliência: Detecção de suporte a WebGL com fallback automático e banner informativo para Canvas 2D.
 - Validação técnica: `npm run build` executado com código 0 (sucesso absoluto).
 - Revisões formais de QA (Agente 7) e Segurança/DevOps (Agente 8) aprovadas com nota máxima.
+
+## 2026-10-24 — Conclusão do BC-004 (Integridade dos Dados e Motor Topológico)
+
+- Criada suíte analítica em `backend/tests/test_topology_engine.py` contendo 21 testes unitários e de integração matemática.
+- Cobertura completa do grafo unipartido: similaridade TF-IDF de gêneros, ponderação combinada, poda topológica k-NN, preservação de componentes conexos via Árvore Geradora Máxima (MST), detecção de comunidades Louvain com modularidade Q e identificação de nó ponte via Centralidade de Intermediação (`bridge_artist`).
+- Cobertura do grafo bipartido: estrita bipartição entre artistas e gêneros, ponderação de afinidade e identificação de artista ponte.
+- Cobertura de robustez matemática e casos de borda: datasets vazios (n=0), grafos unitários (n=1), artistas sem gêneros definidos, grafos com componentes desconexos e integridade referencial estrita entre `links` e `nodes`.
+- Validação técnica: 45/45 testes aprovados no pytest (100% de sucesso).
+- Pareceres formais de QA (Agente 7) e Segurança/DevOps (Agente 8) emitidos com aprovação integral.
