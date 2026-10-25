@@ -50,28 +50,28 @@ function escapeHtml(str) {
 }
 
 /**
- * Cria textura de canvas para rótulo tridimensional legível em Three.js
+ * Cria textura de canvas de alta nitidez para rótulo tridimensional legível em Three.js
  */
 function createLabelSprite(text, color, radius, isGenre) {
   if (typeof document === "undefined") return new THREE.Group();
 
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
-  const width = 256;
-  const height = 64;
+  const width = 512;
+  const height = 128;
   canvas.width = width;
   canvas.height = height;
 
-  // Fundo em formato pill com borda temática
-  ctx.fillStyle = "rgba(10, 12, 18, 0.90)";
-  ctx.strokeStyle = color || "#1DB954";
-  ctx.lineWidth = 3;
+  // Fundo em formato pill com alto contraste e borda luminosa temática
+  ctx.fillStyle = isGenre ? "rgba(8, 12, 22, 0.94)" : "rgba(10, 12, 18, 0.90)";
+  ctx.strokeStyle = color || (isGenre ? "#38BDF8" : "#1DB954");
+  ctx.lineWidth = isGenre ? 6 : 5;
 
-  const r = 16;
-  const x = 6;
-  const y = 6;
-  const w = width - 12;
-  const h = height - 12;
+  const r = 30;
+  const x = 10;
+  const y = 10;
+  const w = width - 20;
+  const h = height - 20;
 
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -83,29 +83,37 @@ function createLabelSprite(text, color, radius, isGenre) {
   ctx.fill();
   ctx.stroke();
 
-  // Texto nítido
-  ctx.font = "bold 20px Inter, system-ui, sans-serif";
+  // Texto nítido em alta resolução
+  ctx.font = `${isGenre ? "800 38px" : "700 36px"} Inter, system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillStyle = "#FFFFFF";
+  ctx.fillStyle = isGenre ? "#F8FAFC" : "#FFFFFF";
 
-  const displayText = text.length > 18 ? text.slice(0, 16) + "…" : text;
+  const maxLen = isGenre ? 20 : 18;
+  const displayText = text.length > maxLen ? text.slice(0, maxLen - 2) + "…" : text;
   ctx.fillText(displayText, width / 2, height / 2);
 
   const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
   texture.needsUpdate = true;
 
   const spriteMat = new THREE.SpriteMaterial({
     map: texture,
     transparent: true,
     depthWrite: false,
+    opacity: 1.0,
   });
 
   const sprite = new THREE.Sprite(spriteMat);
-  const spriteWidth = Math.max(radius * 2.8, 22);
+  const spriteWidth = isGenre ? Math.max(radius * 3.4, 30) : Math.max(radius * 2.8, 22);
   const spriteHeight = spriteWidth * (height / width);
   sprite.scale.set(spriteWidth, spriteHeight, 1);
-  sprite.position.set(0, radius + spriteHeight * 0.65 + 1.5, 0);
+  sprite.position.set(0, radius + spriteHeight * 0.68 + 2, 0);
+  sprite.userData = {
+    baseWidth: spriteWidth,
+    baseHeight: spriteHeight,
+    isGenre,
+  };
 
   // Evita interceptação indevida de cliques no padding do sprite
   sprite.raycast = () => null;
@@ -261,6 +269,20 @@ export default function SpotifyConstellationGraph() {
     };
   }, [graphData, minEdgeWeight]);
 
+  // Verifica se há ausência de gêneros reportada pela API ou no modo bipartido
+  const hasEmptyGenres = useMemo(() => {
+    if (graphData.metadata?.empty_genres) return true;
+    if (
+      !loading &&
+      graphMode === "bipartite" &&
+      filteredGraph.nodes.length > 0 &&
+      !filteredGraph.nodes.some((n) => n.node_type === "genre")
+    ) {
+      return true;
+    }
+    return false;
+  }, [graphData.metadata, loading, graphMode, filteredGraph.nodes]);
+
   const activeNode = hoverNode || selectedNode;
 
   // Conjunto de nós e arestas destacados (1-hop)
@@ -322,27 +344,64 @@ export default function SpotifyConstellationGraph() {
     );
   }, [filteredGraph.nodes, searchQuery, searchTypeFilter]);
 
-  // Configuração das forças físicas no grafo
-  useEffect(() => {
+  // Injeção de iluminação Three.js rica na cena 3D (AmbientLight + DirectionalLight + PointLight)
+  const setupSceneLighting = useCallback(() => {
+    if (!fgRef.current || !is3D) return;
+    const scene = fgRef.current.scene?.();
+    if (!scene || scene.userData?.customLightsAdded) return;
+
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.3);
+    ambientLight.name = "beatcode-ambient-light";
+
+    const dirLightMain = new THREE.DirectionalLight(0xffffff, 1.2);
+    dirLightMain.position.set(180, 240, 200);
+    dirLightMain.name = "beatcode-dir-light-main";
+
+    const dirLightFill = new THREE.DirectionalLight(0x93c5fd, 0.75);
+    dirLightFill.position.set(-180, -150, -160);
+    dirLightFill.name = "beatcode-dir-light-fill";
+
+    const pointLightCenter = new THREE.PointLight(0x1db954, 0.85, 650);
+    pointLightCenter.position.set(0, 0, 0);
+    pointLightCenter.name = "beatcode-point-light";
+
+    scene.add(ambientLight, dirLightMain, dirLightFill, pointLightCenter);
+    scene.userData = { ...scene.userData, customLightsAdded: true };
+  }, [is3D]);
+
+  // Calibração das forças físicas 3D/2D para manter clusters orgânicos e coesos
+  const configureGraphForces = useCallback(() => {
     if (!fgRef.current) return;
 
     if (is3D) {
-      fgRef.current.d3Force?.("charge")?.strength(graphMode === "bipartite" ? -170 : -230);
+      setupSceneLighting();
+      fgRef.current.d3Force?.("charge")?.strength(graphMode === "bipartite" ? -110 : -120);
       fgRef.current
         ?.d3Force?.("link")
-        ?.distance?.((link) => (graphMode === "bipartite" ? 75 : 95 * (1.15 - (link.weight || 0.2))));
+        ?.distance?.((link) =>
+          graphMode === "bipartite" ? 56 : 76 * (1.15 - Math.min(link.weight || 0.25, 0.8))
+        );
+      if (d3?.forceCollide) {
+        fgRef.current.d3Force?.("collide", d3.forceCollide((node) => (node.val || 12) * 0.72 + 5));
+      }
     } else {
-      fgRef.current.d3Force?.("charge")?.strength(graphMode === "bipartite" ? -210 : -260);
+      fgRef.current.d3Force?.("charge")?.strength(graphMode === "bipartite" ? -180 : -220);
       fgRef.current
         ?.d3Force?.("link")
-        ?.distance?.((link) => (graphMode === "bipartite" ? 85 : 115 * (1.15 - (link.weight || 0.2))));
+        ?.distance?.((link) => (graphMode === "bipartite" ? 75 : 105 * (1.15 - (link.weight || 0.2))));
       if (d3?.forceCollide) {
         fgRef.current.d3Force?.("collide", d3.forceCollide((node) => (node.val || 12) + 8));
       }
     }
-  }, [graphData, graphMode, is3D]);
+  }, [graphMode, is3D, setupSceneLighting]);
 
-  // Atualização dinâmica de destaques e opacidades em Three.js sem recriar malhas
+  useEffect(() => {
+    configureGraphForces();
+    const timer = setTimeout(configureGraphForces, 80);
+    return () => clearTimeout(timer);
+  }, [graphData, graphMode, is3D, loading, configureGraphForces]);
+
+  // Atualização dinâmica de destaques, emissividade e rótulos em Three.js sem recriar malhas
   useEffect(() => {
     if (!is3D || !filteredGraph?.nodes) return;
 
@@ -351,149 +410,184 @@ export default function SpotifyConstellationGraph() {
       if (!group || !group.userData) return;
 
       const { mainMesh, ringMesh, labelSprite } = group.userData;
+      const isGenre = node.node_type === "genre";
       const isHighlighted = !activeNode || highlightNodes.has(node.id);
-      const isFocused = activeNode && activeNode.id === node.id;
+      const isFocused = Boolean(activeNode && activeNode.id === node.id);
+      const defaultEmissiveIntensity = isGenre ? 0.35 : 0.2;
 
       if (mainMesh && mainMesh.material) {
         mainMesh.material.transparent = true;
-        mainMesh.material.opacity = isHighlighted ? 1.0 : 0.16;
+        mainMesh.material.opacity = isHighlighted ? 1.0 : 0.24;
         if (mainMesh.material.emissive) {
+          mainMesh.material.emissive.set(node.color || (isGenre ? "#3B82F6" : "#1DB954"));
           if (isFocused) {
-            mainMesh.material.emissive.set(node.color || "#1DB954");
-            mainMesh.material.emissiveIntensity = 0.65;
-          } else if (isHighlighted && activeNode) {
-            mainMesh.material.emissive.set(node.color || "#1DB954");
-            mainMesh.material.emissiveIntensity = 0.3;
+            mainMesh.material.emissiveIntensity = 0.75;
+          } else if (activeNode && isHighlighted) {
+            mainMesh.material.emissiveIntensity = 0.48;
+          } else if (!activeNode) {
+            mainMesh.material.emissiveIntensity = defaultEmissiveIntensity;
           } else {
-            mainMesh.material.emissive.set(0x000000);
-            mainMesh.material.emissiveIntensity = 0;
+            mainMesh.material.emissiveIntensity = 0.08;
           }
         }
       }
 
       if (ringMesh) {
-        ringMesh.visible = !!(activeNode && isHighlighted);
+        ringMesh.visible = Boolean(isGenre || (activeNode && isHighlighted));
         if (ringMesh.material) {
-          ringMesh.material.color.set(isFocused ? "#FFFFFF" : node.color || "#1DB954");
+          ringMesh.material.opacity = isFocused
+            ? 0.95
+            : activeNode && isHighlighted
+            ? 0.85
+            : isGenre
+            ? 0.42
+            : 0.0;
+          ringMesh.material.color.set(
+            isFocused ? "#FFFFFF" : node.color || (isGenre ? "#38BDF8" : "#1DB954")
+          );
         }
       }
 
       if (labelSprite) {
-        if (node.node_type === "genre") {
-          labelSprite.visible = isHighlighted;
+        const baseW = labelSprite.userData?.baseWidth || (isGenre ? 32 : 24);
+        const baseH = labelSprite.userData?.baseHeight || (isGenre ? 8 : 6);
+
+        if (isGenre) {
+          // Hubs de gênero permanecem sempre visíveis por padrão no espaço 3D, ampliando no foco
+          labelSprite.visible = true;
+          if (labelSprite.material) {
+            labelSprite.material.opacity = isHighlighted ? 1.0 : 0.45;
+          }
+          const scaleFactor = isFocused ? 1.32 : activeNode && isHighlighted ? 1.15 : 1.0;
+          labelSprite.scale.set(baseW * scaleFactor, baseH * scaleFactor, 1);
         } else {
-          labelSprite.visible = !!(isFocused || (activeNode && isHighlighted));
+          labelSprite.visible = Boolean(isFocused || (activeNode && isHighlighted));
+          const scaleFactor = isFocused ? 1.25 : 1.0;
+          labelSprite.scale.set(baseW * scaleFactor, baseH * scaleFactor, 1);
         }
       }
     });
   }, [activeNode, highlightNodes, filteredGraph, is3D]);
 
   // Fábrica de objetos Three.js tridimensionais personalizados
-  const createNode3DObject = useCallback((node) => {
-    const isGenre = node.node_type === "genre";
-    const group = new THREE.Group();
+  const createNode3DObject = useCallback(
+    (node) => {
+      setupSceneLighting();
+      const isGenre = node.node_type === "genre";
+      const group = new THREE.Group();
 
-    if (isGenre) {
-      // Nó de Gênero: Poliedro Icosaédrico facetado
-      const radius = Math.max(Math.min((node.val || 14) * 0.72, 18), 8);
-      const polyGeom = new THREE.IcosahedronGeometry(radius, 0);
-      const polyMat = new THREE.MeshStandardMaterial({
-        color: node.color || 0x3b82f6,
-        roughness: 0.25,
-        metalness: 0.55,
-        flatShading: true,
-      });
-      const polyMesh = new THREE.Mesh(polyGeom, polyMat);
+      if (isGenre) {
+        // Nó de Gênero: Poliedro Icosaédrico facetado auto-iluminado com wireframe
+        const radius = Math.max(Math.min((node.val || 14) * 0.74, 18), 8.5);
+        const themeColor = node.color || "#38BDF8";
+        const polyGeom = new THREE.IcosahedronGeometry(radius, 0);
+        const polyMat = new THREE.MeshStandardMaterial({
+          color: themeColor,
+          emissive: new THREE.Color(themeColor),
+          emissiveIntensity: 0.35,
+          roughness: 0.25,
+          metalness: 0.22,
+          flatShading: true,
+        });
+        const polyMesh = new THREE.Mesh(polyGeom, polyMat);
 
-      // Acento de aramado (wireframe)
-      const wireGeom = new THREE.WireframeGeometry(polyGeom);
-      const wireMat = new THREE.LineBasicMaterial({
-        color: 0xffffff,
-        transparent: true,
-        opacity: 0.35,
-      });
-      const wireframe = new THREE.LineSegments(wireGeom, wireMat);
-      wireframe.raycast = () => null;
+        // Acento de aramado nítido (wireframe)
+        const wireGeom = new THREE.WireframeGeometry(polyGeom);
+        const wireMat = new THREE.LineBasicMaterial({
+          color: 0xffffff,
+          transparent: true,
+          opacity: 0.48,
+        });
+        const wireframe = new THREE.LineSegments(wireGeom, wireMat);
+        wireframe.raycast = () => null;
 
-      // Anel halo
-      const ringGeom = new THREE.TorusGeometry(radius * 1.35, radius * 0.08, 16, 32);
-      const ringMat = new THREE.MeshBasicMaterial({
-        color: node.color || 0x3b82f6,
-        transparent: true,
-        opacity: 0.9,
-      });
-      const ringMesh = new THREE.Mesh(ringGeom, ringMat);
-      ringMesh.rotation.x = Math.PI / 4;
-      ringMesh.visible = false;
-      ringMesh.raycast = () => null;
+        // Anel halo permanente nos hubs de gênero (destacado ainda mais no foco)
+        const ringGeom = new THREE.TorusGeometry(radius * 1.35, radius * 0.08, 16, 32);
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: themeColor,
+          transparent: true,
+          opacity: 0.42,
+        });
+        const ringMesh = new THREE.Mesh(ringGeom, ringMat);
+        ringMesh.rotation.x = Math.PI / 4;
+        ringMesh.visible = true;
+        ringMesh.raycast = () => null;
 
-      // Sprite de rótulo
-      const labelSprite = createLabelSprite(`# ${node.name}`, node.color || "#3b82f6", radius, true);
+        // Sprite de rótulo 3D sempre visível por padrão para gêneros
+        const labelSprite = createLabelSprite(`# ${node.name}`, themeColor, radius, true);
+        labelSprite.visible = true;
 
-      group.add(polyMesh);
-      group.add(wireframe);
-      group.add(ringMesh);
-      group.add(labelSprite);
-      group.userData = { mainMesh: polyMesh, ringMesh, labelSprite, node };
-    } else {
-      // Nó de Artista: Esfera texturizada com foto ou cor da comunidade
-      const radius = Math.max(Math.min((node.val || 12) * 0.65, 16), 6.5);
-      const sphereGeom = new THREE.SphereGeometry(radius, 32, 24);
-      const sphereMat = new THREE.MeshStandardMaterial({
-        color: node.color || 0x1db954,
-        roughness: 0.35,
-        metalness: 0.2,
-      });
+        group.add(polyMesh);
+        group.add(wireframe);
+        group.add(ringMesh);
+        group.add(labelSprite);
+        group.userData = { mainMesh: polyMesh, ringMesh, labelSprite, node };
+      } else {
+        // Nó de Artista: Esfera texturizada com foto ou cor da comunidade e brilho emissivo
+        const radius = Math.max(Math.min((node.val || 12) * 0.66, 16), 6.5);
+        const artistColor = node.color || "#1DB954";
+        const sphereGeom = new THREE.SphereGeometry(radius, 32, 24);
+        const sphereMat = new THREE.MeshStandardMaterial({
+          color: artistColor,
+          emissive: new THREE.Color(artistColor),
+          emissiveIntensity: 0.2,
+          roughness: 0.32,
+          metalness: 0.12,
+        });
 
-      if (node.image_url) {
-        if (textures3D.current[node.id]) {
-          sphereMat.map = textures3D.current[node.id];
-          sphereMat.needsUpdate = true;
-        } else {
-          const loader = new THREE.TextureLoader();
-          loader.setCrossOrigin("anonymous");
-          loader.load(
-            node.image_url,
-            (tex) => {
-              tex.colorSpace = THREE.SRGBColorSpace;
-              textures3D.current[node.id] = tex;
-              sphereMat.map = tex;
-              sphereMat.needsUpdate = true;
-            },
-            undefined,
-            () => {
-              // Mantém a cor temática da comunidade em caso de falha de carregamento
-            }
-          );
+        if (node.image_url) {
+          if (textures3D.current[node.id]) {
+            sphereMat.map = textures3D.current[node.id];
+            sphereMat.color.setHex(0xffffff);
+            sphereMat.needsUpdate = true;
+          } else {
+            const loader = new THREE.TextureLoader();
+            loader.setCrossOrigin("anonymous");
+            loader.load(
+              node.image_url,
+              (tex) => {
+                tex.colorSpace = THREE.SRGBColorSpace;
+                textures3D.current[node.id] = tex;
+                sphereMat.map = tex;
+                sphereMat.color.setHex(0xffffff);
+                sphereMat.needsUpdate = true;
+              },
+              undefined,
+              () => {
+                // Mantém a cor temática da comunidade em caso de falha de carregamento
+              }
+            );
+          }
         }
+
+        const sphereMesh = new THREE.Mesh(sphereGeom, sphereMat);
+
+        // Anel de destaque halo
+        const ringGeom = new THREE.TorusGeometry(radius * 1.32, radius * 0.08, 16, 32);
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: artistColor,
+          transparent: true,
+          opacity: 0.9,
+        });
+        const ringMesh = new THREE.Mesh(ringGeom, ringMat);
+        ringMesh.rotation.x = Math.PI / 4;
+        ringMesh.visible = false;
+        ringMesh.raycast = () => null;
+
+        // Sprite de rótulo
+        const labelSprite = createLabelSprite(node.name, artistColor, radius, false);
+        labelSprite.visible = false;
+
+        group.add(sphereMesh);
+        group.add(ringMesh);
+        group.add(labelSprite);
+        group.userData = { mainMesh: sphereMesh, ringMesh, labelSprite, node };
       }
 
-      const sphereMesh = new THREE.Mesh(sphereGeom, sphereMat);
-
-      // Anel de destaque halo
-      const ringGeom = new THREE.TorusGeometry(radius * 1.32, radius * 0.08, 16, 32);
-      const ringMat = new THREE.MeshBasicMaterial({
-        color: node.color || 0x1db954,
-        transparent: true,
-        opacity: 0.9,
-      });
-      const ringMesh = new THREE.Mesh(ringGeom, ringMat);
-      ringMesh.rotation.x = Math.PI / 4;
-      ringMesh.visible = false;
-      ringMesh.raycast = () => null;
-
-      // Sprite de rótulo
-      const labelSprite = createLabelSprite(node.name, node.color || "#1DB954", radius, false);
-      labelSprite.visible = false;
-
-      group.add(sphereMesh);
-      group.add(ringMesh);
-      group.add(labelSprite);
-      group.userData = { mainMesh: sphereMesh, ringMesh, labelSprite, node };
-    }
-
-    return group;
-  }, []);
+      return group;
+    },
+    [setupSceneLighting]
+  );
 
   // Pintura 2D Canvas Fallback
   const paintNode2D = useCallback(
@@ -505,7 +599,7 @@ export default function SpotifyConstellationGraph() {
       const radius = node.val || 14;
 
       ctx.save();
-      ctx.globalAlpha = isHighlighted ? 1.0 : 0.14;
+      ctx.globalAlpha = isHighlighted ? 1.0 : 0.18;
 
       if (isFocused) {
         ctx.shadowColor = node.color;
@@ -592,7 +686,7 @@ export default function SpotifyConstellationGraph() {
         const nx = node.x || 0;
         const ny = node.y || 0;
         const nz = node.z || 0;
-        const distance = 150;
+        const distance = 140;
         const distRatio = 1 + distance / (Math.hypot(nx, ny, nz) || 1);
 
         const newPos = {
@@ -648,9 +742,9 @@ export default function SpotifyConstellationGraph() {
   const handleZoomToFit = useCallback(() => {
     if (!fgRef.current) return;
     if (is3D) {
-      fgRef.current.zoomToFit(prefersReducedMotion ? 0 : 800, 45);
+      fgRef.current.zoomToFit(prefersReducedMotion ? 0 : 800, 50);
     } else {
-      fgRef.current.zoomToFit(prefersReducedMotion ? 0 : 600, 45);
+      fgRef.current.zoomToFit(prefersReducedMotion ? 0 : 600, 50);
     }
   }, [is3D, prefersReducedMotion]);
 
@@ -834,6 +928,30 @@ export default function SpotifyConstellationGraph() {
         </div>
       )}
 
+      {/* Banner sutil informativo quando os artistas não possuem gêneros catalogados */}
+      {hasEmptyGenres && !loading && !authError && (
+        <div
+          className="absolute top-20 left-4 z-20 flex flex-wrap items-center gap-3 rounded-xl border border-cyan-500/40 bg-zinc-900/95 px-4 py-2.5 text-xs text-zinc-200 backdrop-blur-md shadow-xl max-w-2xl"
+          role="status"
+        >
+          <div className="flex items-center gap-2">
+            <Info className="h-4 w-4 shrink-0 text-cyan-400" />
+            <span>
+              {graphData.metadata?.empty_genres_message ||
+                "Os artistas retornados pelo Spotify neste período possuem poucos ou nenhum gênero catalogado. Exibindo agrupamentos inferidos ou tente o Modo Demo."}
+            </span>
+          </div>
+          {!demoMode && (
+            <button
+              onClick={() => setDemoMode(true)}
+              className="rounded-lg bg-cyan-500/20 border border-cyan-400/50 px-2.5 py-1 text-[11px] font-semibold text-cyan-300 hover:bg-cyan-500/30 transition-all"
+            >
+              Experimentar Dataset Demo
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Viewport do Grafo Principal */}
       <main className="flex-1 h-full relative">
         {loading ? (
@@ -881,22 +999,34 @@ export default function SpotifyConstellationGraph() {
               setHoverNode(null);
             }}
             linkWidth={(link) =>
-              highlightLinks.has(link) ? (link.weight || 0.2) * 3.6 + 1.2 : Math.max((link.weight || 0.2) * 1.5, 0.4)
+              highlightLinks.has(link)
+                ? Math.max((link.weight || 0.3) * 4.2 + 1.5, 2.4)
+                : Math.max((link.weight || 0.3) * 2.2 + 0.6, 1.1)
             }
             linkColor={(link) => {
-              if (!activeNode) return "rgba(161, 161, 170, 0.25)";
+              if (!activeNode) {
+                return graphMode === "bipartite"
+                  ? "rgba(110, 231, 183, 0.52)"
+                  : "rgba(161, 161, 170, 0.48)";
+              }
               return highlightLinks.has(link)
-                ? "rgba(29, 185, 84, 0.92)"
-                : "rgba(63, 63, 70, 0.08)";
+                ? graphMode === "bipartite"
+                  ? "rgba(34, 211, 238, 0.96)"
+                  : "rgba(29, 185, 84, 0.96)"
+                : "rgba(71, 85, 105, 0.14)";
             }}
             linkDirectionalParticles={(link) => (highlightLinks.has(link) ? 3 : 0)}
-            linkDirectionalParticleWidth={2.4}
+            linkDirectionalParticleWidth={2.8}
             linkDirectionalParticleSpeed={0.007}
-            linkOpacity={0.65}
-            cooldownTicks={120}
+            linkOpacity={0.9}
+            warmupTicks={45}
+            cooldownTicks={110}
+            d3AlphaDecay={0.028}
+            d3VelocityDecay={0.35}
             onEngineStop={() => {
+              setupSceneLighting();
               if (!hasInitialFitted.current && fgRef.current) {
-                fgRef.current.zoomToFit(prefersReducedMotion ? 0 : 800, 45);
+                fgRef.current.zoomToFit(prefersReducedMotion ? 0 : 750, 55);
                 hasInitialFitted.current = true;
               }
             }}
@@ -928,13 +1058,13 @@ export default function SpotifyConstellationGraph() {
               setHoverNode(null);
             }}
             linkWidth={(link) =>
-              highlightLinks.has(link) ? link.weight * 4.5 : link.weight * 1.8
+              highlightLinks.has(link) ? link.weight * 4.5 : Math.max(link.weight * 2.2, 1.0)
             }
             linkColor={(link) => {
-              if (!activeNode) return "rgba(161, 161, 170, 0.22)";
+              if (!activeNode) return "rgba(161, 161, 170, 0.45)";
               return highlightLinks.has(link)
-                ? "rgba(29, 185, 84, 0.88)"
-                : "rgba(63, 63, 70, 0.06)";
+                ? "rgba(29, 185, 84, 0.92)"
+                : "rgba(63, 63, 70, 0.12)";
             }}
             linkDirectionalParticles={(link) => (highlightLinks.has(link) ? 2 : 0)}
             linkDirectionalParticleWidth={3}

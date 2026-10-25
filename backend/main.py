@@ -379,6 +379,10 @@ def compute_unipartite_artist_graph(
     aplicando poda topológica via k-NN + Maximum Spanning Tree.
     """
     n = len(artists)
+    artists_with_genres = [a for a in artists if a.get("genres") and len(a.get("genres")) > 0]
+    genre_coverage = round(len(artists_with_genres) / max(n, 1), 3) if n > 0 else 0.0
+    empty_genres = (len(artists_with_genres) == 0)
+
     if n == 0:
         return {
             "metadata": {
@@ -389,6 +393,8 @@ def compute_unipartite_artist_graph(
                 "modularity_score": 0.0,
                 "bridge_artist": None,
                 "clusters": [],
+                "empty_genres": True,
+                "genre_coverage": 0.0,
             },
             "nodes": [],
             "links": [],
@@ -582,6 +588,8 @@ def compute_unipartite_artist_graph(
             "modularity_score": modularity_val,
             "bridge_artist": bridge_payload,
             "clusters": clusters_summary,
+            "empty_genres": empty_genres,
+            "genre_coverage": genre_coverage,
         },
         "nodes": nodes_payload,
         "links": links_payload,
@@ -599,8 +607,13 @@ def compute_bipartite_artist_genre_graph(
     Cria dois conjuntos disjuntos de nós:
       - U: Artistas (com foto, afinidade, músicas)
       - V: Gêneros musicais (filtrados para gêneros relevantes que conectam artistas ou definem nichos)
+    Garante resiliência total para contas reais onde os artistas possuem poucos ou nenhum gênero cadastrado.
     """
     n = len(artists)
+    artists_with_genres = [a for a in artists if a.get("genres") and len(a.get("genres")) > 0]
+    genre_coverage = round(len(artists_with_genres) / max(n, 1), 3) if n > 0 else 0.0
+    empty_genres = (len(artists_with_genres) == 0)
+
     if n == 0:
         return {
             "metadata": {
@@ -611,6 +624,8 @@ def compute_bipartite_artist_genre_graph(
                 "modularity_score": 0.0,
                 "bridge_artist": None,
                 "clusters": [],
+                "empty_genres": True,
+                "genre_coverage": 0.0,
             },
             "nodes": [],
             "links": [],
@@ -618,18 +633,44 @@ def compute_bipartite_artist_genre_graph(
 
     artist_top_tracks, _ = extract_artist_tracks_and_collabs(artists, top_tracks, saved_tracks)
 
-    # Contagem de frequência de cada gênero no perfil do usuário
+    # 1. Contagem de frequência de cada gênero no perfil do usuário
     genre_to_artists: Dict[str, List[str]] = defaultdict(list)
     for artist in artists:
         for g in artist.get("genres", []):
-            genre_to_artists[g].append(artist["id"])
+            clean_g = g.lower().strip()
+            if clean_g:
+                genre_to_artists[clean_g].append(artist["id"])
 
-    # Seleciona gêneros que conectam >= 2 artistas OU o gênero principal de um artista sem gênero compartilhado
+    # 2. Seleciona gêneros que conectam >= 2 artistas
     selected_genres = {g for g, a_list in genre_to_artists.items() if len(a_list) >= 2}
+
+    # 3. Adiciona o gênero principal de artistas sem gênero compartilhado
     for artist in artists:
-        a_genres = artist.get("genres", [])
+        a_genres = [g.lower().strip() for g in artist.get("genres", []) if g.lower().strip()]
         if a_genres and not any(g in selected_genres for g in a_genres):
             selected_genres.add(a_genres[0])
+
+    # 4. Resiliência: se selected_genres for vazio ou menor que 2, selecione gêneros individuais remanescentes
+    if len(selected_genres) < 2:
+        for g in genre_to_artists.keys():
+            selected_genres.add(g)
+            if len(selected_genres) >= 2:
+                break
+
+    # 5. Resiliência: se ainda for vazio ou menor que 2, crie nós semânticos agregadores
+    SEMANTIC_FALLBACKS = ["eclético", "variado"]
+    if len(selected_genres) == 0:
+        if n == 1:
+            selected_genres.add("eclético")
+        else:
+            for fallback in SEMANTIC_FALLBACKS:
+                selected_genres.add(fallback)
+    elif len(selected_genres) < 2 and n > 1:
+        for fallback in SEMANTIC_FALLBACKS:
+            if fallback not in selected_genres:
+                selected_genres.add(fallback)
+            if len(selected_genres) >= 2:
+                break
 
     B = nx.Graph()
     artist_map = {}
@@ -642,23 +683,38 @@ def compute_bipartite_artist_genre_graph(
         g_node_id = f"genre::{g}"
         B.add_node(g_node_id, bipartite=1, node_type="genre", label=g)
 
+    # Lista estável de gêneros agregadores para distribuição equilibrada
+    fallback_genre_list = [g for g in SEMANTIC_FALLBACKS if g in selected_genres]
+    if not fallback_genre_list:
+        fallback_genre_list = sorted(list(selected_genres))
+
     links_payload = []
     for rank_idx, artist in enumerate(artists):
         a_id = artist["id"]
         affinity_score = 1.0 - (rank_idx / max(n, 1)) * 0.70
-        for g in artist.get("genres", []):
-            if g in selected_genres:
-                g_node_id = f"genre::{g}"
-                # Peso da aresta Artista-Gênero proporcional à afinidade do usuário pelo artista
-                w = round(float(0.35 + 0.65 * affinity_score), 3)
-                B.add_edge(a_id, g_node_id, weight=w)
-                links_payload.append({
-                    "source": a_id,
-                    "target": g_node_id,
-                    "weight": w,
-                    "link_type": "artist-genre",
-                    "shared_genres": [g],
-                })
+        raw_genres = [g.lower().strip() for g in artist.get("genres", []) if g.lower().strip()]
+        matched_genres = [g for g in raw_genres if g in selected_genres]
+
+        # Se o artista não possui gêneros cadastrados ou nenhum de seus gêneros está em selected_genres,
+        # associa a um nó agregador semântico para garantir a conectividade e a renderização 3D bipartida
+        if not matched_genres:
+            assigned_g = fallback_genre_list[rank_idx % len(fallback_genre_list)]
+            matched_genres = [assigned_g]
+            if a_id not in genre_to_artists[assigned_g]:
+                genre_to_artists[assigned_g].append(a_id)
+
+        for g in matched_genres:
+            g_node_id = f"genre::{g}"
+            # Peso da aresta Artista-Gênero proporcional à afinidade do usuário pelo artista
+            w = round(float(0.35 + 0.65 * affinity_score), 3)
+            B.add_edge(a_id, g_node_id, weight=w)
+            links_payload.append({
+                "source": a_id,
+                "target": g_node_id,
+                "weight": w,
+                "link_type": "artist-genre",
+                "shared_genres": [g],
+            })
 
     # Detecção de Comunidades no Grafo Bipartido via Louvain
     if B.number_of_edges() > 0:
@@ -781,6 +837,8 @@ def compute_bipartite_artist_genre_graph(
             "modularity_score": modularity_val,
             "bridge_artist": bridge_payload,
             "clusters": clusters_summary,
+            "empty_genres": empty_genres,
+            "genre_coverage": genre_coverage,
         },
         "nodes": nodes_payload,
         "links": links_payload,
@@ -852,6 +910,29 @@ def get_music_graph(
             sp = get_spotify_client(request)
             top_artists_resp = sp.current_user_top_artists(limit=limit, time_range=time_range)
             artists = top_artists_resp.get("items", []) if top_artists_resp else []
+
+            # Enriquecimento em lote de gêneros caso haja artistas com genres vazios
+            missing_genre_ids = [
+                a["id"] for a in artists
+                if not a.get("genres") and a.get("id")
+            ]
+            if missing_genre_ids:
+                try:
+                    for i in range(0, len(missing_genre_ids), 50):
+                        chunk_ids = missing_genre_ids[i:i + 50]
+                        enriched_resp = sp.artists(chunk_ids)
+                        enriched_artists = enriched_resp.get("artists", []) if enriched_resp else []
+                        genre_map = {
+                            ea["id"]: ea.get("genres", [])
+                            for ea in enriched_artists
+                            if ea and ea.get("id") and ea.get("genres")
+                        }
+                        for a in artists:
+                            if a.get("id") in genre_map and genre_map[a["id"]]:
+                                a["genres"] = genre_map[a["id"]]
+                except Exception:
+                    # Falha no enriquecimento não bloqueia o fluxo principal
+                    pass
 
             # Degradação graciosa: falhas em fontes secundárias não interrompem a geração do grafo
             try:

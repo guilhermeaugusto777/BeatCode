@@ -407,7 +407,7 @@ def test_unipartite_artists_without_genres():
 
 
 def test_bipartite_artists_without_genres():
-    """Artistas sem gêneros são adicionados como nós sem falhas e sem criar nós de gêneros órfãos."""
+    """Artistas sem gêneros ativam nós semânticos agregadores, mantendo a bipartição e links ativos."""
     artists_no_genres = [
         {"id": "a1", "name": "Unknown 1", "genres": [], "popularity": 40, "images": []},
         {"id": "a2", "name": "Unknown 2", "genres": [], "popularity": 50, "images": []},
@@ -418,9 +418,13 @@ def test_bipartite_artists_without_genres():
         saved_tracks=[],
         time_range="medium_term",
     )
-    assert result["metadata"]["total_nodes"] == 2
-    assert result["metadata"]["total_links"] == 0
-    assert all(n["node_type"] == "artist" for n in result["nodes"])
+    assert result["metadata"]["empty_genres"] is True
+    assert result["metadata"]["genre_coverage"] == 0.0
+    assert result["metadata"]["total_links"] >= 2
+    # Nós de artistas e nós de gêneros agregadores presentes
+    node_types = {n["node_type"] for n in result["nodes"]}
+    assert "artist" in node_types
+    assert "genre" in node_types
 
 
 def test_unipartite_disconnected_components():

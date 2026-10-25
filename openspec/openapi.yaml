@@ -183,6 +183,15 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ClusterSummary"
+        empty_genres:
+          type: boolean
+          description: Indica se a conta do usuário não possui nenhum gênero cadastrado nos artistas retornados
+          example: false
+        genre_coverage:
+          type: number
+          format: float
+          description: Proporção de artistas do grafo que possuem pelo menos um gênero identificado
+          example: 0.95
 
     ClusterSummary:
       type: object

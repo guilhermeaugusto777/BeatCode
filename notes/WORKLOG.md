@@ -63,3 +63,12 @@
 - Atualização completa do `README.md` com guia passo a passo para Windows (PowerShell), instruções de setup do Spotify Developer Dashboard (regras 2026+, loopback `127.0.0.1`, modo Development com Premium e allowlist), execução de backend/frontend em terminais separados, comandos de teste (`pytest -v`), build de produção (`npm run build`), guia de controles 3D/teclado e troubleshooting detalhado.
 - Validação final automatizada: 46/46 testes passando no pytest e `npm run build` estático compilado com sucesso e zero avisos de lint/tipagem.
 - Auditoria final independente conduzida com todos os agentes do Maestri (Agente 2 em Arquitetura, Agente 3 em Front-end/3D, Agente 4 em Back-end/APIs, Agente 5 em Banco de Dados/Persistência, Agente 6 em IA/Determinismo, Agente 7 em QA e Agente 8 em Segurança/DevOps), com aprovação unânime e sem bloqueios impeditivos.
+
+
+## 2026-10-25 — Conclusão do BC-006 (Correção do Grafo 3D Bipartido e Refinamento do Frontend)
+
+- Diagnóstico da causa raiz: contas Spotify reais sem gêneros cadastrados (`genres: []`) geravam `selected_genres` vazio no modo bipartido; no frontend Three.js, os rótulos de gêneros estavam ocultos no estado inicial (`labelSprite.visible = isHighlighted`), a cena carecia de iluminação customizada e emissividade (produzindo nós escurecidos/pretos), as arestas tinham baixa opacidade efetiva (0.16) e a força de repulsão dispersava excessivamente os nós.
+- Implementação Front-end (Agente 3): injeção de iluminação Three.js completa (`AmbientLight`, duas `DirectionalLight` e `PointLight` esmeralda central); emissividade nativa nos materiais `MeshStandardMaterial`; rótulos 3D de gênero permanentemente visíveis em alta resolução (512x128); arestas reforçadas com opacidade 0.9 e gradiente temático ciano/esmeralda; calibração de forças 3D (`charge: -110`, amortecimento e warmup); banner informativo para ausência de gêneros no perfil.
+- Implementação Back-end (Agente 4): enriquecimento em lote via `sp.artists` em chunks de 50 IDs; resiliência algorítmica com nós agregadores semânticos (`"eclético"`, `"variado"`) garantindo bipartição estrita e conectividade mesmo em contas sem gêneros; metadados `empty_genres` e `genre_coverage`; criação de `backend/tests/test_bipartite_graph.py` com 8 testes novos.
+- Validação QA (Agente 7): 54/54 testes passando no pytest e `npm run build` bem-sucedido sem erros.
+- Revisão de Segurança/DevOps (Agente 8): aprovação unânime confirmando integridade de código, mitigação de XSS e inexistência de segredos versionados.
