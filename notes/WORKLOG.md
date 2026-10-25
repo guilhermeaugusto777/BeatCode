@@ -57,3 +57,9 @@
 - Pareceres arquiteturais consolidados: Agente 5 aprovou a persistência 100% volátil em memória (zero disco, estrita conformidade com LGPD/Spotify); Agente 6 aprovou a abordagem matemática determinística (dispensando custos de inferência e LLMs no core analítico).
 - Validação técnica: 46/46 testes aprovados no pytest e `npm run build` bem-sucedido com código 0.
 - Auditoria de segurança e conformidade final do Agente 8 aprovada sem ressalvas impeditivas.
+
+## 2026-10-24 — Conclusão do BC-007 (Integração, Documentação Completa e Auditoria Final)
+
+- Atualização completa do `README.md` com guia passo a passo para Windows (PowerShell), instruções de setup do Spotify Developer Dashboard (regras 2026+, loopback `127.0.0.1`, modo Development com Premium e allowlist), execução de backend/frontend em terminais separados, comandos de teste (`pytest -v`), build de produção (`npm run build`), guia de controles 3D/teclado e troubleshooting detalhado.
+- Validação final automatizada: 46/46 testes passando no pytest e `npm run build` estático compilado com sucesso e zero avisos de lint/tipagem.
+- Auditoria final independente conduzida com todos os agentes do Maestri (Agente 2 em Arquitetura, Agente 3 em Front-end/3D, Agente 4 em Back-end/APIs, Agente 5 em Banco de Dados/Persistência, Agente 6 em IA/Determinismo, Agente 7 em QA e Agente 8 em Segurança/DevOps), com aprovação unânime e sem bloqueios impeditivos.
