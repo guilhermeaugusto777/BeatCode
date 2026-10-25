@@ -192,6 +192,28 @@ def test_opportunistic_cleanup_of_expired_sessions(client, spotify_env):
     assert active_session_id in SESSIONS
 
 
+def test_cleanup_memory_saturation_cap(client, monkeypatch):
+    """Descarta as sessões mais antigas (FIFO) quando o limite de MAX_ACTIVE_SESSIONS é excedido."""
+    import main
+    monkeypatch.setattr(main, "MAX_ACTIVE_SESSIONS", 3)
+
+    t0 = time.time()
+    SESSIONS["s1"] = {"cache_handler": MemoryCacheHandler(), "created_at": t0 - 30}
+    SESSIONS["s2"] = {"cache_handler": MemoryCacheHandler(), "created_at": t0 - 20}
+    SESSIONS["s3"] = {"cache_handler": MemoryCacheHandler(), "created_at": t0 - 10}
+    SESSIONS["s4"] = {"cache_handler": MemoryCacheHandler(), "created_at": t0 - 5}
+    SESSIONS["s5"] = {"cache_handler": MemoryCacheHandler(), "created_at": t0}
+
+    client.get("/auth/status")
+    # Deve reter apenas as 3 sessões mais recentes (s3, s4, s5) e descartar as mais antigas (s1, s2)
+    assert len(SESSIONS) == 3
+    assert "s1" not in SESSIONS
+    assert "s2" not in SESSIONS
+    assert "s3" in SESSIONS
+    assert "s4" in SESSIONS
+    assert "s5" in SESSIONS
+
+
 # ==============================================================================
 # 4. Callback OAuth (GET /auth/callback)
 # ==============================================================================

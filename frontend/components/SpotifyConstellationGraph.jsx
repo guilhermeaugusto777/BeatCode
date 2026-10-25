@@ -37,6 +37,19 @@ const GRAPH_MODES = [
 ];
 
 /**
+ * [SEC-03] Sanitiza strings para interpolação segura em HTML/tooltips
+ */
+function escapeHtml(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+/**
  * Cria textura de canvas para rótulo tridimensional legível em Three.js
  */
 function createLabelSprite(text, color, radius, isGenre) {
@@ -144,6 +157,20 @@ export default function SpotifyConstellationGraph() {
       setWebGlAvailable(false);
       setIs3D(false);
     }
+  }, []);
+
+  // [DEV-03] Limpeza de recursos e texturas Three.js para liberar memória da GPU ao desmontar
+  useEffect(() => {
+    const cachedTextures = textures3D.current;
+    return () => {
+      if (cachedTextures) {
+        Object.values(cachedTextures).forEach((texture) => {
+          if (texture && typeof texture.dispose === "function") {
+            texture.dispose();
+          }
+        });
+      }
+    };
   }, []);
 
   // Detecção de acessibilidade: prefers-reduced-motion
@@ -657,22 +684,31 @@ export default function SpotifyConstellationGraph() {
     setIs3D((prev) => !prev);
   }, [webGlAvailable, is3D]);
 
-  // Tooltip customizado em HTML
+  // [SEC-03] Tooltip customizado em HTML com sanitização de campos interpolados
   const getNodeTooltip = useCallback((node) => {
+    if (!node) return "";
     const isGenre = node.node_type === "genre";
-    const typeLabel = isGenre ? "Gênero Musical" : `Rank #${node.affinity_rank || "-"}`;
-    const degree = node.metrics?.degree_centrality ?? "-";
+    const typeLabel = isGenre
+      ? "Gênero Musical"
+      : `Rank #${escapeHtml(node.affinity_rank) || "-"}`;
+    const degree = escapeHtml(node.metrics?.degree_centrality ?? "-");
+    const safeName = escapeHtml(node.name || "");
+    const safeColor = escapeHtml(node.color || "#1DB954");
+    const safeGenres = Array.isArray(node.genres)
+      ? node.genres.slice(0, 3).map(escapeHtml).join(", ")
+      : "";
+
     return `
-      <div style="background: rgba(13, 15, 22, 0.95); border: 1px solid ${node.color || "#1DB954"}; border-radius: 8px; padding: 8px 12px; font-family: Inter, system-ui, sans-serif; box-shadow: 0 8px 24px rgba(0,0,0,0.6); color: #fff; font-size: 12px; pointer-events: none; line-height: 1.4;">
-        <div style="font-weight: 700; font-size: 13px; color: ${node.color || "#1DB954"}; margin-bottom: 2px;">
-          ${isGenre ? "# " : ""}${node.name}
+      <div style="background: rgba(13, 15, 22, 0.95); border: 1px solid ${safeColor}; border-radius: 8px; padding: 8px 12px; font-family: Inter, system-ui, sans-serif; box-shadow: 0 8px 24px rgba(0,0,0,0.6); color: #fff; font-size: 12px; pointer-events: none; line-height: 1.4;">
+        <div style="font-weight: 700; font-size: 13px; color: ${safeColor}; margin-bottom: 2px;">
+          ${isGenre ? "# " : ""}${safeName}
         </div>
         <div style="color: #a1a1aa; font-size: 11px;">
           ${typeLabel} &bull; Centralidade: ${degree}
         </div>
         ${
-          node.genres && node.genres.length > 0
-            ? `<div style="color: #71717a; font-size: 10px; margin-top: 4px;">${node.genres.slice(0, 3).join(", ")}</div>`
+          safeGenres
+            ? `<div style="color: #71717a; font-size: 10px; margin-top: 4px;">${safeGenres}</div>`
             : ""
         }
       </div>

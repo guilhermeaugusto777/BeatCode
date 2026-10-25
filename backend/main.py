@@ -31,6 +31,7 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://127.0.0.1:3000")
 INDEX_HTML_PATH = Path(__file__).parent / "index.html"
 SESSION_COOKIE_NAME = "beatcode_session"
 SESSION_TTL_SECONDS = 24 * 60 * 60  # 24 horas
+MAX_ACTIVE_SESSIONS = 5000
 
 # Sessões OAuth gerenciadas exclusivamente em memória no servidor
 # Estrutura:
@@ -45,7 +46,10 @@ SESSIONS: Dict[str, Dict[str, Any]] = {}
 
 
 def cleanup_expired_sessions() -> None:
-    """Limpeza oportunista de sessões em memória com mais de 24 horas de existência."""
+    """
+    Limpeza oportunista de sessões em memória com mais de 24 horas de existência
+    e proteção contra saturação de memória (OOM / FIFO), limitando o total a MAX_ACTIVE_SESSIONS.
+    """
     now = time.time()
     expired_ids = [
         s_id for s_id, s_data in SESSIONS.items()
@@ -53,6 +57,16 @@ def cleanup_expired_sessions() -> None:
     ]
     for s_id in expired_ids:
         SESSIONS.pop(s_id, None)
+
+    # Proteção contra esgotamento de memória (descarte das mais antigas por created_at)
+    if len(SESSIONS) > MAX_ACTIVE_SESSIONS:
+        excess_count = len(SESSIONS) - MAX_ACTIVE_SESSIONS
+        sorted_sessions = sorted(
+            SESSIONS.items(),
+            key=lambda item: item[1].get("created_at", 0)
+        )
+        for s_id, _ in sorted_sessions[:excess_count]:
+            SESSIONS.pop(s_id, None)
 
 
 @app.get("/", include_in_schema=False)

@@ -14,7 +14,7 @@ Permitir que uma pessoa conecte o Spotify e explore suas afinidades musicais em 
 | BC-002 | Auditar autenticação e endpoints Spotify diante das regras atuais | `DONE` | 4 — Back-end; 8 — Segurança | [BC-002](tasks/002-spotify-compatibility.md) |
 | BC-003 | Implementar visualização 3D com controles de câmera e zoom | `DONE` | 3 — Front-end | [BC-003](tasks/003-interactive-3d-graph.md) · [Proposta OpenSpec](../openspec/changes/interactive-3d-graph/proposal.md) |
 | BC-004 | Adicionar testes de visualização, dados e regressão de API | `DONE` | 7 — QA | [BC-004](tasks/004-test-coverage.md) |
-| BC-005 | Revisar acessibilidade, desempenho, segredos e configuração de build | `PLANNED` | 8 — Segurança/DevOps | [BC-005](tasks/005-hardening.md) |
+| BC-005 | Revisar acessibilidade, desempenho, segredos e configuração de build | `DONE` | 8 — Segurança/DevOps | [BC-005](tasks/005-hardening.md) |
 
 ## Sequência sugerida
 

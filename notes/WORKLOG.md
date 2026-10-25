@@ -48,3 +48,12 @@
 - Cobertura de robustez matemática e casos de borda: datasets vazios (n=0), grafos unitários (n=1), artistas sem gêneros definidos, grafos com componentes desconexos e integridade referencial estrita entre `links` e `nodes`.
 - Validação técnica: 45/45 testes aprovados no pytest (100% de sucesso).
 - Pareceres formais de QA (Agente 7) e Segurança/DevOps (Agente 8) emitidos com aprovação integral.
+
+## 2026-10-24 — Conclusão do BC-005 (Acessibilidade, Desempenho e Hardening)
+
+- Implementada blindagem contra saturação de memória no backend (`MAX_ACTIVE_SESSIONS = 5000` com política de expulsão determinística FIFO das sessões mais antigas) e adicionado teste `test_cleanup_memory_saturation_cap`.
+- Sanitização de entidades HTML em tooltips (`escapeHtml`) contra injeção e quebra de layout [SEC-03].
+- Liberação ativa de recursos de VRAM da GPU no desmonte do componente Three.js via `texture.dispose()` [DEV-03].
+- Pareceres arquiteturais consolidados: Agente 5 aprovou a persistência 100% volátil em memória (zero disco, estrita conformidade com LGPD/Spotify); Agente 6 aprovou a abordagem matemática determinística (dispensando custos de inferência e LLMs no core analítico).
+- Validação técnica: 46/46 testes aprovados no pytest e `npm run build` bem-sucedido com código 0.
+- Auditoria de segurança e conformidade final do Agente 8 aprovada sem ressalvas impeditivas.
