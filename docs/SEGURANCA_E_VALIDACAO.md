@@ -2,15 +2,17 @@
 
 ## Auditoria de dependências
 
-Executado em `backend/`: `uvx pip-audit -r requirements.txt --progress-spinner off --format columns`. O relatório tem 18 linhas, com avisos repetidos, referentes a três pacotes e oito identificadores distintos. Nenhum pacote foi atualizado nesta fase; a alteração de FastAPI e Starlette precisa de migração e testes próprios.
+Após a migração, `uvx pip-audit -r requirements.txt --progress-spinner off --format columns` informou **nenhuma vulnerabilidade conhecida**. O conjunto testado em Python 3.11 usa FastAPI `0.162.2`, Starlette `1.7.0`, Spotipy `2.26.0` e python-dotenv `1.2.4`. Starlette foi fixada explicitamente para tornar a versão transitiva reproduzível. Os 52 testes passaram, com um `xfail` conhecido sobre similaridade lexical de gêneros. O aviso de descontinuação do `httpx` no TestClient da Starlette permanece e requer avaliação futura do cliente de testes.
 
-| Pacote fixado | Avisos | Impacto neste código | Próxima ação |
+Antes da migração, o mesmo comando relatava 18 linhas, com avisos repetidos, referentes a três pacotes e oito identificadores distintos:
+
+| Pacote anterior | Avisos | Impacto neste código | Estado |
 | --- | --- | --- | --- |
-| `spotipy 2.24.0` | `PYSEC-2026-1936` | A falha envolve permissões do cache em disco. O BeatCode usa cache em memória por sessão, então esse caminho específico não é usado. | Verificar compatibilidade e atualizar para pelo menos `2.25.1` em etapa separada. |
-| `python-dotenv 1.0.1` | `PYSEC-2026-2270` | A falha envolve escrita por `set_key`/`unset_key`; o aplicativo chama `load_dotenv`. | Atualizar para pelo menos `1.2.2` após teste de inicialização. |
-| `starlette 0.38.6` (transitiva de `fastapi 0.115.0`) | `PYSEC-2026-1943`, `1941`, `161`, `2281`, `2280`, `249`, `248` | Há falhas em parsers, URLs, `StaticFiles` e métodos de endpoint. A aplicação não usa todos esses recursos, mas o processamento da URL afeta uma checagem de cabeçalhos privados. | Migrar FastAPI e Starlette conjuntamente; FastAPI `0.115.0` restringe Starlette a `<0.39.0`, impossibilitando um simples upgrade transitivo. |
+| `spotipy 2.24.0` | `PYSEC-2026-1936` | A falha envolve permissões do cache em disco. O BeatCode usa cache em memória por sessão. | Atualizado para `2.26.0`. |
+| `python-dotenv 1.0.1` | `PYSEC-2026-2270` | A falha envolve escrita por `set_key`/`unset_key`; o aplicativo chama `load_dotenv`. | Atualizado para `1.2.4`. |
+| `starlette 0.38.6` (transitiva de `fastapi 0.115.0`) | `PYSEC-2026-1943`, `1941`, `161`, `2281`, `2280`, `249`, `248` | Havia falhas em parsers, URLs, `StaticFiles` e métodos de endpoint. O processamento da URL afetava uma checagem de cabeçalhos privados. | FastAPI e Starlette atualizados conjuntamente para `0.162.2` e `1.7.0`. |
 
-O caso de URL foi reproduzido: um `Host` malformado fazia `/api/graph` responder sem `Cache-Control: no-store`. A checagem usa agora o caminho roteado em `request.scope["path"]`; há teste de regressão com `Host: example.com/abc?x=`. É uma **mitigação localizada**, não uma correção geral das vulnerabilidades da Starlette. Manter o servidor limitado a `127.0.0.1` até migrar as dependências e revisar o conjunto de avisos.
+O caso de URL foi reproduzido antes da migração: um `Host` malformado fazia `/api/graph` responder sem `Cache-Control: no-store`. A checagem continua usando o caminho roteado em `request.scope["path"]`; o teste de regressão permanece. Manter o servidor limitado a `127.0.0.1` porque o armazenamento de sessões em memória ainda é local, independentemente do resultado da auditoria.
 
 Em `frontend/`, `npm audit --audit-level=moderate` encontrou **zero** vulnerabilidades com o lockfile atual. O ESLint `9.39.5` está fora da janela de suporte da política oficial; `10.14.0` é a versão atual consultada. A dependência `minimatch` exigida por ESLint 10 é `^10.2.6`; o aviso de segurança verificado para essa linha recomenda a versão corrigida `11.0.1` ou posterior. A tentativa anterior de migrar para ESLint 10 trouxe esse aviso, então a recomendação é acompanhar uma correção compatível no ecossistema ou avaliar um linter alternativo em proposta própria. Não forçar `npm audit fix` ou sobrescrever a árvore sem testar o resultado.
 
