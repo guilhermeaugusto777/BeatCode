@@ -4,6 +4,8 @@
 
 Após a migração, `uvx pip-audit -r requirements.txt --progress-spinner off --format columns` informou **nenhuma vulnerabilidade conhecida**. O conjunto testado em Python 3.11 usa FastAPI `0.162.2`, Starlette `1.7.0`, Spotipy `2.26.0` e python-dotenv `1.2.4`. Starlette foi fixada explicitamente para tornar a versão transitiva reproduzível. Os 52 testes passaram, com um `xfail` conhecido sobre similaridade lexical de gêneros. O aviso de descontinuação do `httpx` no TestClient da Starlette permanece e requer avaliação futura do cliente de testes.
 
+A auditoria de `requirements-dev.txt` detectou ainda um aviso em `pytest 8.3.3`; a atualização para `9.0.3` passou nos mesmos 52 testes. A auditoria do conjunto de desenvolvimento também passou sem vulnerabilidades conhecidas.
+
 Antes da migração, o mesmo comando relatava 18 linhas, com avisos repetidos, referentes a três pacotes e oito identificadores distintos:
 
 | Pacote anterior | Avisos | Impacto neste código | Estado |
