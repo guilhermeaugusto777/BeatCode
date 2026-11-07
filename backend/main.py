@@ -136,7 +136,8 @@ app.add_middleware(
 @app.middleware("http")
 async def private_no_store(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith("/auth/") or request.url.path == "/api/graph":
+    path = request.scope["path"]
+    if path.startswith("/auth/") or path == "/api/graph":
         response.headers["Cache-Control"] = "no-store"
         response.headers["Referrer-Policy"] = "no-referrer"
     return response

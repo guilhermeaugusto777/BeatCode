@@ -180,3 +180,14 @@ def test_secure_cookie_on_https_and_cors_allowlist(fake_spotify):
         assert allowed.headers["access-control-allow-origin"] == "http://127.0.0.1:3000"
         assert allowed.headers["access-control-allow-credentials"] == "true"
         assert denied.status_code == 400
+
+
+def test_private_response_headers_use_routed_path_despite_malformed_host():
+    with TestClient(main.app) as client:
+        response = client.get(
+            "/api/graph?demo=true",
+            headers={"Host": "example.com/abc?x="},
+        )
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["referrer-policy"] == "no-referrer"
