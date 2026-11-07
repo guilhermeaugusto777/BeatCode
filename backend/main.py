@@ -451,6 +451,33 @@ def extract_artist_tracks_and_collabs(
     return artist_top_tracks, collab_matrix
 
 
+def compute_current_session_matrix(
+    artists: List[Dict[str, Any]], recent_tracks: List[Dict[str, Any]]
+) -> np.ndarray:
+    """Heurística histórica de adjacência; não usa played_at."""
+    artist_idx = {artist["id"]: i for i, artist in enumerate(artists)}
+    matrix = np.zeros((len(artists), len(artists)), dtype=float)
+    recent_artist_seq = []
+    for item in recent_tracks:
+        track = item.get("track")
+        if track and track.get("artists"):
+            primary_id = track["artists"][0]["id"]
+            if primary_id in artist_idx:
+                recent_artist_seq.append(artist_idx[primary_id])
+
+    window = 3
+    for i in range(len(recent_artist_seq)):
+        u = recent_artist_seq[i]
+        for j in range(i + 1, min(i + window, len(recent_artist_seq))):
+            v = recent_artist_seq[j]
+            if u != v:
+                matrix[u, v] += 1.0
+                matrix[v, u] += 1.0
+
+    maximum = matrix.max(initial=0)
+    return matrix / maximum if maximum > 0 else matrix
+
+
 def compute_unipartite_artist_graph(
     artists: List[Dict[str, Any]],
     top_tracks: List[Dict[str, Any]],
@@ -474,28 +501,7 @@ def compute_unipartite_artist_graph(
         artists, top_tracks, saved_tracks
     )
 
-    # Matriz de Co-escuta em Sessões Recentes (janela deslizante = 3)
-    session_matrix = np.zeros((n, n), dtype=float)
-    recent_artist_seq = []
-    for item in recent_tracks:
-        track = item.get("track")
-        if track and track.get("artists"):
-            primary_id = track["artists"][0]["id"]
-            if primary_id in artist_idx:
-                recent_artist_seq.append(artist_idx[primary_id])
-
-    window = 3
-    for i in range(len(recent_artist_seq)):
-        u = recent_artist_seq[i]
-        for j in range(i + 1, min(i + window, len(recent_artist_seq))):
-            v = recent_artist_seq[j]
-            if u != v:
-                session_matrix[u, v] += 1.0
-                session_matrix[v, u] += 1.0
-
-    max_session = session_matrix.max()
-    if max_session > 0:
-        session_matrix = session_matrix / max_session
+    session_matrix = compute_current_session_matrix(artists, recent_tracks)
 
     # Similaridade de Gênero via TF-IDF + Cosseno
     genre_sim_matrix = compute_genre_similarity(artists)

@@ -7,6 +7,7 @@ from main import (
     build_genre_corpus,
     compute_bipartite_artist_genre_graph,
     compute_unipartite_artist_graph,
+    get_demo_dataset,
 )
 
 
@@ -101,6 +102,24 @@ def test_bipartite_betweenness_uses_hop_count_reference():
     expected = nx.betweenness_centrality(unweighted, normalized=True)
     actual = {node["id"]: node["metrics"]["betweenness_centrality"] for node in result["nodes"]}
     assert actual["B"] == pytest.approx(round(expected["B"], 3))
+
+
+def test_explanation_components_approximately_reconstruct_final_weight():
+    demo = get_demo_dataset()
+    result = compute_unipartite_artist_graph(**demo, time_range="medium_term")
+    for edge in result["links"]:
+        components = edge["components"]
+        reconstructed = (
+            0.65 * components["genre_similarity"]
+            + 0.25 * components["direct_collaboration"]
+            + 0.10 * components["co_listening"]
+        )
+        assert edge["weight"] == pytest.approx(reconstructed, abs=0.0005)
+
+    bipartite = compute_bipartite_artist_genre_graph(
+        demo["artists"], demo["top_tracks"], demo["saved_tracks"], "medium_term"
+    )
+    assert all("components" not in edge for edge in bipartite["links"])
 
 
 def test_r_and_b_alone_should_remain_a_usable_genre():
