@@ -62,3 +62,5 @@ npm audit --audit-level=moderate
 ```
 
 O frontend possui lint, mas ainda não tem suíte automatizada de interação Canvas. Não coloque credenciais nem tokens no repositório.
+
+A revisão metodológica e os casos de referência do motor estão em `docs/REVISAO_MODELO_MATEMATICO.md`. Nenhuma fórmula foi alterada nessa revisão.
