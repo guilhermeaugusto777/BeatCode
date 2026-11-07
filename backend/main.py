@@ -22,6 +22,7 @@ import spotipy
 from spotipy.cache_handler import MemoryCacheHandler
 from spotipy.oauth2 import SpotifyOAuth, SpotifyOauthError
 from spotipy.exceptions import SpotifyException
+from genre_representation import build_compatible_genre_corpus
 
 load_dotenv()
 
@@ -385,19 +386,27 @@ def fetch_spotify_items(
 
 
 def build_genre_corpus(artists: List[Dict[str, Any]]) -> List[str]:
-    """
-    Constrói documentos de texto combinando o gênero exato (com underscore)
-    e seus sub-tokens para capturar tanto 'indie_rock' exato quanto 'indie'.
-    """
-    corpus = []
-    for artist in artists:
-        tokens = []
-        for g in artist.get("genres", []):
-            exact_token = g.lower().strip().replace(" ", "_").replace("-", "_")
-            sub_tokens = [t for t in g.lower().replace("-", " ").split() if len(t) > 2]
-            tokens.extend([exact_token, exact_token] + sub_tokens)
-        corpus.append(" ".join(tokens))
-    return corpus
+    return build_compatible_genre_corpus(artists)
+
+
+def get_artist_genres(artist: Dict[str, Any]) -> List[str]:
+    """Mantém apenas rótulos válidos para o grafo e o contrato de resposta."""
+    return list(dict.fromkeys(
+        genre for genre in (artist.get("genres") or [])
+        if isinstance(genre, str) and genre.strip()
+    ))
+
+
+def compute_genre_similarity(artists: List[Dict[str, Any]]) -> np.ndarray:
+    """TF-IDF com rótulos compostos preservados e subtermos históricos."""
+    corpus = build_genre_corpus(artists)
+    if not any(len(doc) > 0 for doc in corpus):
+        return np.zeros((len(artists), len(artists)), dtype=float)
+    vectorizer = TfidfVectorizer(token_pattern=r"(?u)\S+")
+    tfidf_matrix = vectorizer.fit_transform(corpus)
+    similarities = cosine_similarity(tfidf_matrix)
+    np.fill_diagonal(similarities, 0.0)
+    return similarities
 
 
 def extract_artist_tracks_and_collabs(
@@ -489,14 +498,7 @@ def compute_unipartite_artist_graph(
         session_matrix = session_matrix / max_session
 
     # Similaridade de Gênero via TF-IDF + Cosseno
-    corpus = build_genre_corpus(artists)
-    if any(len(doc) > 0 for doc in corpus):
-        vectorizer = TfidfVectorizer()
-        tfidf_matrix = vectorizer.fit_transform(corpus)
-        genre_sim_matrix = cosine_similarity(tfidf_matrix)
-        np.fill_diagonal(genre_sim_matrix, 0.0)
-    else:
-        genre_sim_matrix = np.zeros((n, n), dtype=float)
+    genre_sim_matrix = compute_genre_similarity(artists)
 
     # Peso Composto: W = 0.65 * Genre + 0.25 * Collab + 0.10 * Session
     alpha, beta, gamma = 0.65, 0.25, 0.10
@@ -542,7 +544,7 @@ def compute_unipartite_artist_graph(
         i, j = artist_idx[u_id], artist_idx[v_id]
         w = round(float(weight_matrix[i, j]), 4)
         shared_genres = sorted(
-            list(set(artists[i].get("genres", [])).intersection(set(artists[j].get("genres", []))))
+            list(set(get_artist_genres(artists[i])).intersection(get_artist_genres(artists[j])))
         )
         G.add_edge(u_id, v_id, weight=w)
         links_payload.append({
@@ -574,7 +576,7 @@ def compute_unipartite_artist_graph(
         genre_counts: Dict[str, int] = defaultdict(int)
         for node_id in comm:
             node_cluster[node_id] = c_idx
-            for g in artists[artist_idx[node_id]].get("genres", []):
+            for g in get_artist_genres(artists[artist_idx[node_id]]):
                 genre_counts[g] += 1
 
         dominant_genres = [
@@ -616,7 +618,7 @@ def compute_unipartite_artist_graph(
             "cluster_id": c_id,
             "color": color,
             "image_url": image_url,
-            "genres": artist.get("genres", []),
+            "genres": get_artist_genres(artist),
             "top_tracks": artist_top_tracks.get(a_id, []),
             "metrics": {
                 "degree_centrality": round(degree_cent.get(a_id, 0.0), 3),
@@ -666,13 +668,13 @@ def compute_bipartite_artist_genre_graph(
     # Contagem de frequência de cada gênero no perfil do usuário
     genre_to_artists: Dict[str, List[str]] = defaultdict(list)
     for artist in artists:
-        for g in artist.get("genres", []):
+        for g in get_artist_genres(artist):
             genre_to_artists[g].append(artist["id"])
 
     # Seleciona gêneros que conectam >= 2 artistas OU o gênero principal de um artista sem gênero compartilhado
     selected_genres = {g for g, a_list in genre_to_artists.items() if len(a_list) >= 2}
     for artist in artists:
-        a_genres = artist.get("genres", [])
+        a_genres = get_artist_genres(artist)
         if a_genres and not any(g in selected_genres for g in a_genres):
             selected_genres.add(a_genres[0])
 
@@ -691,7 +693,7 @@ def compute_bipartite_artist_genre_graph(
     for rank_idx, artist in enumerate(artists):
         a_id = artist["id"]
         affinity_score = 1.0 - (rank_idx / max(n, 1)) * 0.70
-        for g in artist.get("genres", []):
+        for g in get_artist_genres(artist):
             if g in selected_genres:
                 g_node_id = f"genre::{g}"
                 # Peso da aresta Artista-Gênero proporcional à afinidade do usuário pelo artista
@@ -765,7 +767,7 @@ def compute_bipartite_artist_genre_graph(
             "cluster_id": c_id,
             "color": color,
             "image_url": image_url,
-            "genres": artist.get("genres", []),
+            "genres": get_artist_genres(artist),
             "top_tracks": artist_top_tracks.get(a_id, []),
             "metrics": {
                 "degree_centrality": round(degree_cent.get(a_id, 0.0), 3),

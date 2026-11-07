@@ -103,7 +103,6 @@ def test_bipartite_betweenness_uses_hop_count_reference():
     assert actual["B"] == pytest.approx(round(expected["B"], 3))
 
 
-@pytest.mark.xfail(strict=True, reason="TfidfVectorizer descarta r&b e produz vocabulário vazio")
 def test_r_and_b_alone_should_remain_a_usable_genre():
     artists = [artist("A", ["r&b"]), artist("B", ["r&b"])]
     assert "r&b" in build_genre_corpus(artists)[0]

@@ -6,6 +6,7 @@
 No modo Unipartido (`graph_mode=artists`), o sistema SHALL calcular o peso $W(u, v) \in [0, 1]$ entre dois artistas $u$ e $v$ pela combinação convexa:
 $$W(u, v) = 0.65 \cdot S_{\text{genre}}(u, v) + 0.25 \cdot S_{\text{collab}}(u, v) + 0.10 \cdot S_{\text{session}}(u, v)$$
 Onde $S_{\text{genre}}(u, v)$ é a Similaridade de Cosseno sobre os vetores TF-IDF dos gêneros e radicais semânticos, $S_{\text{collab}}(u, v)$ mede colaborações diretas nas faixas do usuário, e $S_{\text{session}}(u, v)$ mede coocorrência temporal em janela deslizante ($w=3$) no histórico recente.
+Os rótulos compostos de gênero MUST ser preservados como tokens completos, inclusive quando contiverem `&` ou hífen. O modelo atual ainda inclui subtermos independentes e não usa `played_at` no componente de coescuta; ambos são hipóteses metodológicas em avaliação.
 
 #### Scenario: Penalização de gêneros guarda-chuva via TF-IDF
 - **GIVEN** dois artistas que compartilham apenas um gênero extremamente frequente no perfil do usuário (ex: `"rock"`) e outros dois artistas que compartilham um subgênero específico (ex: `"shoegaze"`)
