@@ -30,11 +30,19 @@ A interface SHALL disponibilizar controles dinâmicos sem recarregamento de pág
 2. Alternar entre os períodos `4 Semanas` (`short_term`), `6 Meses` (`medium_term`) e `Histórico` (`long_term`).
 3. Filtrar arestas em tempo real através de um controle deslizante de limiar de força mínima (`minEdgeWeight`).
 4. Exibir no painel lateral a Modularidade ($Q$), o número de conexões visíveis, o **Artista Mais Conector (Bridge Node)** e os principais clusters de gênero.
+5. Identificar modularidade, comunidades e artista ponte como métricas da rede completa recebida da API; o controle deslizante altera apenas as arestas visíveis, sem recálculo dessas métricas.
+6. Permitir busca textual acessível em todos os nós recebidos, inclusive gêneros no modo bipartido, com contagem de resultados e seleção por teclado.
 
 #### Scenario: Ajuste dinâmico do limiar de conexão
 - **GIVEN** o grafo carregado em tela
 - **WHEN** o usuário move o slider de limiar de `0.15` para `0.35`
 - **THEN** todas as arestas com `weight < 0.35` são ocultadas instantaneamente e a física de forças reorganiza o layout
+- **AND** a interface informa que modularidade, comunidades e artista ponte ainda descrevem a rede completa calculada no backend
+
+#### Scenario: Busca de um gênero fora dos primeiros resultados
+- **GIVEN** o usuário está no modo bipartido e o gênero está presente nos nós recebidos
+- **WHEN** o usuário digita parte do nome na busca e ativa o resultado pelo teclado
+- **THEN** o gênero é selecionado e suas informações aparecem no painel, independentemente da posição no array de nós
 
 ---
 
