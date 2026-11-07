@@ -66,6 +66,7 @@ def complete_login(client, state, person):
         f"/auth/callback?state={state}&code={person}", follow_redirects=False
     )
     assert response.status_code == 307
+    assert response.headers["location"] == main.FRONTEND_URL
     return response
 
 

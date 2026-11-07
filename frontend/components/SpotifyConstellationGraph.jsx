@@ -21,37 +21,80 @@ const GRAPH_MODES = [
 
 export default function SpotifyConstellationGraph() {
   const fgRef = useRef(null);
+  const graphContainerRef = useRef(null);
   const imageCache = useRef({});
 
   const [graphData, setGraphData] = useState({ metadata: null, nodes: [], links: [] });
   const [timeRange, setTimeRange] = useState("medium_term");
   const [graphMode, setGraphMode] = useState("artists");
-  const [demoMode, setDemoMode] = useState(false);
+  const [experience, setExperience] = useState("checking");
   const [minEdgeWeight, setMinEdgeWeight] = useState(0.15);
   const [hoverNode, setHoverNode] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [authError, setAuthError] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [graphError, setGraphError] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [graphSize, setGraphSize] = useState({ width: 800, height: 600 });
 
   useEffect(() => {
     let active = true;
+    fetch(`${API_BASE_URL}/auth/status`, { credentials: "include", cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) throw new Error("Não foi possível verificar sua sessão.");
+        return response.json();
+      })
+      .then((status) => {
+        if (active) setExperience(status.authenticated ? "spotify" : "welcome");
+      })
+      .catch(() => {
+        if (active) setExperience("welcome");
+      });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    const container = graphContainerRef.current;
+    if (!container) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setGraphSize({
+        width: Math.max(1, Math.floor(entry.contentRect.width)),
+        height: Math.max(1, Math.floor(entry.contentRect.height)),
+      });
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [experience]);
+
+  useEffect(() => {
+    if (experience !== "demo" && experience !== "spotify") return;
+    let active = true;
     setLoading(true);
-    setAuthError(null);
+    setGraphError(null);
+    setGraphData({ metadata: null, nodes: [], links: [] });
+    setSelectedNode(null);
+    setHoverNode(null);
 
-    const url = `${API_BASE_URL}/api/graph?time_range=${timeRange}&graph_mode=${graphMode}&limit=50&demo=${demoMode}`;
+    const url = `${API_BASE_URL}/api/graph?time_range=${timeRange}&graph_mode=${graphMode}&limit=50&demo=${experience === "demo"}`;
 
-    fetch(url, { credentials: "include" })
+    fetch(url, { credentials: "include", cache: "no-store" })
       .then(async (res) => {
-        if (res.status === 401 || res.status === 400) {
-          const errBody = await res.json().catch(() => ({}));
-          throw new Error(
-            errBody.detail || "Não autenticado no Spotify. Conecte sua conta ou ative o Modo Demo."
-          );
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          const retryAfter = res.headers.get("Retry-After");
+          const waitHint = res.status === 429 && /^\d+$/.test(retryAfter || "")
+            ? ` Tente novamente em ${retryAfter} segundos.` : "";
+          const error = new Error((body.detail || `Não foi possível carregar o grafo (${res.status}).`) + waitHint);
+          error.status = res.status;
+          throw error;
         }
         return res.json();
       })
       .then((data) => {
         if (!active) return;
+        if (!Array.isArray(data.nodes) || !Array.isArray(data.links) || !data.metadata) {
+          throw new Error("A API retornou um grafo incompleto. Tente novamente.");
+        }
         data.nodes.forEach((node) => {
           if (node.image_url && !imageCache.current[node.id]) {
             const img = new Image();
@@ -66,14 +109,17 @@ export default function SpotifyConstellationGraph() {
       })
       .catch((err) => {
         if (!active) return;
-        setAuthError(err.message);
+        setGraphError({
+          message: err instanceof TypeError ? "Não foi possível conectar ao servidor local. Confira se o backend está em execução." : err.message,
+          status: err.status || 0,
+        });
         setLoading(false);
       });
 
     return () => {
       active = false;
     };
-  }, [timeRange, graphMode, demoMode]);
+  }, [timeRange, graphMode, experience, retryCount]);
 
   useEffect(() => {
     if (!fgRef.current) return;
@@ -83,6 +129,12 @@ export default function SpotifyConstellationGraph() {
       .distance((link) => (graphMode === "bipartite" ? 85 : 115 * (1.15 - (link.weight || 0.2))));
     fgRef.current.d3Force("collide", d3.forceCollide((node) => (node.val || 12) + 8));
   }, [graphData, graphMode]);
+
+  useEffect(() => {
+    if (loading || graphError || graphData.nodes.length === 0) return;
+    const frame = requestAnimationFrame(() => fgRef.current?.zoomToFit(300, 32));
+    return () => cancelAnimationFrame(frame);
+  }, [graphSize, loading, graphError, graphData]);
 
   const filteredGraph = useMemo(() => {
     const validLinks = graphData.links.filter((l) => l.weight >= minEdgeWeight);
@@ -200,23 +252,107 @@ export default function SpotifyConstellationGraph() {
     [activeNode, highlightNodes]
   );
 
+  const focusNode = (node) => {
+    setSelectedNode((previous) => previous?.id === node.id ? null : node);
+    fgRef.current?.centerAt(node.x, node.y, 400);
+    fgRef.current?.zoom(2.1, 400);
+  };
+
+  const leaveGraph = async () => {
+    if (experience === "spotify") {
+      setLoggingOut(true);
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/logout`, {
+          method: "POST",
+          credentials: "include",
+        });
+        if (!response.ok) throw new Error("Não foi possível encerrar a sessão. Tente novamente.");
+      } catch (error) {
+        setGraphError({ message: error.message, status: 0 });
+        setLoggingOut(false);
+        return;
+      }
+      setLoggingOut(false);
+    }
+    setGraphData({ metadata: null, nodes: [], links: [] });
+    setSelectedNode(null);
+    setHoverNode(null);
+    setGraphError(null);
+    setExperience("welcome");
+  };
+
+  if (experience === "checking") {
+    return <div className="flex min-h-dvh items-center justify-center bg-[#090A0F] text-zinc-300" role="status">Verificando sessão...</div>;
+  }
+
+  if (experience === "welcome") {
+    return (
+      <main className="beatcode-welcome min-h-dvh overflow-y-auto bg-[#090A0F] text-zinc-100">
+        <div className="mx-auto flex min-h-dvh max-w-7xl flex-col px-6 py-7 sm:px-10">
+          <div className="flex items-center gap-3 text-xs font-bold uppercase tracking-[0.22em] text-zinc-300">
+            <span className="h-3 w-3 rounded-full bg-[#1DB954] shadow-[0_0_22px_#1DB954]" aria-hidden="true" />
+            BeatCode <span className="font-normal text-zinc-500">/ mapa musical</span>
+          </div>
+          <div className="grid flex-1 items-center gap-12 py-14 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+            <div className="relative z-10 max-w-xl">
+              <p className="mb-5 text-xs font-semibold uppercase tracking-[0.25em] text-emerald-400">Seu gosto tem forma</p>
+              <h1 className="text-5xl font-black leading-[0.98] tracking-[-0.06em] sm:text-7xl">
+                Ouça as conexões.<br /><span className="text-[#1DB954]">Veja a rede.</span>
+              </h1>
+              <p className="mt-7 max-w-lg text-base leading-7 text-zinc-400">
+                Explore artistas, gêneros e comunidades em um mapa interativo da sua música. Escolha como começar.
+              </p>
+              <div className="mt-10 grid gap-3 sm:grid-cols-2">
+                <a href={`${API_BASE_URL}/auth/login`} className="group rounded-2xl border border-emerald-500/40 bg-emerald-500 p-5 text-zinc-950 shadow-[0_12px_50px_rgba(29,185,84,0.16)] transition hover:bg-emerald-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white">
+                  <span className="text-xs font-bold uppercase tracking-widest">Sua biblioteca</span>
+                  <strong className="mt-5 block text-xl leading-tight">Conectar minha conta Spotify ↗</strong>
+                  <span className="mt-3 block text-sm text-emerald-950/80">Entre com sua conta para explorar seus artistas.</span>
+                </a>
+                <button type="button" onClick={() => setExperience("demo")} className="rounded-2xl border border-zinc-700 bg-zinc-900/80 p-5 text-left transition hover:border-amber-400/70 hover:bg-zinc-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white">
+                  <span className="text-xs font-bold uppercase tracking-widest text-amber-400">Sem login</span>
+                  <strong className="mt-5 block text-xl leading-tight text-zinc-100">Explorar demonstração →</strong>
+                  <span className="mt-3 block text-sm text-zinc-400">Experimente os dois grafos com dados de exemplo.</span>
+                </button>
+              </div>
+              <p className="mt-5 text-xs text-zinc-500">Suas credenciais Spotify não são mostradas ao BeatCode. A demonstração não usa sua conta.</p>
+            </div>
+            <div className="constellation-preview relative min-h-[360px] lg:min-h-[620px]" aria-hidden="true">
+              <div className="preview-orbit preview-orbit-one" />
+              <div className="preview-orbit preview-orbit-two" />
+              <span className="preview-node preview-node-a">A</span>
+              <span className="preview-node preview-node-b">B</span>
+              <span className="preview-node preview-node-c">C</span>
+              <span className="preview-node preview-node-d">D</span>
+              <span className="preview-node preview-node-e">E</span>
+              <span className="preview-node preview-node-f">#</span>
+              <span className="preview-caption">ARTISTAS · GÊNEROS · COMUNIDADES</span>
+            </div>
+          </div>
+          <p className="text-xs text-zinc-600">Uma visualização exploratória. As conexões são inferências do BeatCode a partir de dados do Spotify.</p>
+        </div>
+      </main>
+    );
+  }
+
   return (
-    <div className="relative flex h-screen w-screen overflow-hidden bg-[#090A0F] text-zinc-100 font-sans">
+    <div className="flex h-dvh w-full flex-col overflow-y-auto bg-[#090A0F] font-sans text-zinc-100 lg:overflow-hidden">
       {/* Barra Superior de Controles */}
-      <header className="absolute top-4 left-4 z-20 flex flex-wrap items-center gap-3 rounded-2xl border border-zinc-800/80 bg-zinc-900/90 px-4 py-2.5 backdrop-blur-md shadow-2xl">
+      <header className="z-20 flex shrink-0 flex-wrap items-center gap-3 border-b border-zinc-800 bg-zinc-900/95 px-4 py-3 backdrop-blur-md sm:px-6">
         <div className="flex items-center gap-2 pr-2">
           <span className="h-3 w-3 rounded-full bg-[#1DB954] animate-pulse" />
           <h1 className="text-xs font-bold tracking-wider uppercase text-zinc-200">
-            Spotify Music Graph
+            BeatCode <span className="font-normal text-zinc-500">/ {experience === "demo" ? "demonstração" : "minha música"}</span>
           </h1>
         </div>
 
         {/* Alternador Unipartido vs Bipartido */}
-        <div className="flex rounded-lg bg-zinc-950 p-1 border border-zinc-800">
+        <div className="flex rounded-lg bg-zinc-950 p-1 border border-zinc-800" role="group" aria-label="Tipo de grafo">
           {GRAPH_MODES.map((gm) => (
             <button
               key={gm.key}
+              type="button"
               onClick={() => setGraphMode(gm.key)}
+              aria-pressed={graphMode === gm.key}
               className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
                 graphMode === gm.key
                   ? "bg-emerald-500/20 text-[#1DB954] border border-[#1DB954]/50 font-semibold"
@@ -229,11 +365,13 @@ export default function SpotifyConstellationGraph() {
         </div>
 
         {/* Seletor de Período */}
-        <div className="flex rounded-lg bg-zinc-950 p-1 border border-zinc-800">
+        <div className="flex rounded-lg bg-zinc-950 p-1 border border-zinc-800" role="group" aria-label="Período do Spotify">
           {TIME_RANGES.map((tr) => (
             <button
               key={tr.key}
+              type="button"
               onClick={() => setTimeRange(tr.key)}
+              aria-pressed={timeRange === tr.key}
               className={`px-2.5 py-1 text-xs font-medium rounded-md transition-all ${
                 timeRange === tr.key
                   ? "bg-[#1DB954] text-black font-semibold shadow"
@@ -247,10 +385,11 @@ export default function SpotifyConstellationGraph() {
 
         {/* Limiar de Peso da Aresta */}
         <div className="flex items-center gap-2 border-l border-zinc-800 pl-3">
-          <label className="text-xs text-zinc-400">
+          <label htmlFor="edge-threshold" className="text-xs text-zinc-400">
             Limiar: <strong className="text-zinc-200">{minEdgeWeight.toFixed(2)}</strong>
           </label>
           <input
+            id="edge-threshold"
             type="range"
             min="0.05"
             max="0.65"
@@ -261,54 +400,43 @@ export default function SpotifyConstellationGraph() {
           />
         </div>
 
-        {/* Botão Modo Demo / Login Spotify */}
-        <div className="flex items-center gap-2 border-l border-zinc-800 pl-3">
-          <button
-            onClick={() => setDemoMode((prev) => !prev)}
-            className={`px-2.5 py-1 text-xs font-medium rounded-md border transition-all ${
-              demoMode
-                ? "border-amber-500/60 bg-amber-500/20 text-amber-300"
-                : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:text-white"
-            }`}
-          >
-            {demoMode ? "Modo Demo Ativo" : "Usar Dados Demo"}
+        <div className="ml-auto flex items-center gap-2">
+          <button type="button" onClick={() => fgRef.current?.zoom((fgRef.current?.zoom() || 1) * 1.3, 250)} aria-label="Aproximar grafo" className="graph-tool">+</button>
+          <button type="button" onClick={() => fgRef.current?.zoom((fgRef.current?.zoom() || 1) / 1.3, 250)} aria-label="Afastar grafo" className="graph-tool">−</button>
+          <button type="button" onClick={() => fgRef.current?.zoomToFit(350, 40)} className="graph-tool px-2">Enquadrar</button>
+          <button type="button" onClick={leaveGraph} disabled={loggingOut} className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-50">
+            {loggingOut ? "Saindo..." : experience === "spotify" ? "Sair" : "Voltar"}
           </button>
-          <a
-            href={`${API_BASE_URL}/auth/login`}
-            className="px-3 py-1 text-xs font-semibold rounded-md bg-[#1DB954] text-black hover:bg-[#1ed760] transition-all"
-          >
-            Conectar Spotify
-          </a>
         </div>
       </header>
 
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
       {/* Canvas Principal */}
-      <main className="flex-1 h-full">
+      <main ref={graphContainerRef} className="relative min-h-[52vh] min-w-0 flex-1 lg:min-h-0" aria-label="Mapa musical interativo">
+        <div className="pointer-events-none absolute left-4 top-4 z-10 max-w-xs rounded-xl border border-zinc-800/80 bg-zinc-950/85 px-4 py-3 text-xs text-zinc-300 backdrop-blur-sm">
+          <strong className="block text-sm text-white">{graphMode === "artists" ? "Artista ↔ artista" : "Artista ↔ gênero"}</strong>
+          <span>{graphMode === "artists" ? "As linhas representam afinidade inferida pelo BeatCode." : "Os hexágonos representam gêneros catalogados no Spotify."}</span>
+        </div>
         {loading ? (
-          <div className="flex h-full items-center justify-center text-sm text-zinc-400">
-            Calculando matriz TF-IDF, árvore geradora e comunidades Louvain...
+          <div className="flex h-full items-center justify-center px-6 text-center text-sm text-zinc-400" role="status">
+            Montando seu mapa musical...
           </div>
-        ) : authError ? (
+        ) : graphError ? (
           <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
-            <p className="text-sm text-zinc-300 max-w-md">{authError}</p>
-            <div className="flex gap-3">
-              <a
-                href={`${API_BASE_URL}/auth/login`}
-                className="rounded-xl bg-[#1DB954] px-5 py-2.5 text-xs font-bold text-black hover:bg-[#1ed760]"
-              >
-                Autenticar com Spotify (OAuth 2.0)
-              </a>
-              <button
-                onClick={() => setDemoMode(true)}
-                className="rounded-xl border border-zinc-700 bg-zinc-800 px-5 py-2.5 text-xs font-semibold text-zinc-200 hover:bg-zinc-700"
-              >
-                Explorar com Dataset Demo
-              </button>
+            <p className="max-w-md text-sm text-zinc-300" role="alert">{graphError.message}</p>
+            <div className="flex flex-wrap justify-center gap-3">
+              <button type="button" onClick={() => setRetryCount((count) => count + 1)} className="rounded-xl border border-zinc-700 px-5 py-2.5 text-xs font-semibold hover:bg-zinc-800">Tentar novamente</button>
+              {graphError.status === 401 && experience === "spotify" && <a href={`${API_BASE_URL}/auth/login`} className="rounded-xl bg-[#1DB954] px-5 py-2.5 text-xs font-bold text-black">Reconectar Spotify</a>}
+              <button type="button" onClick={() => setExperience("demo")} className="rounded-xl border border-amber-500/60 px-5 py-2.5 text-xs font-semibold text-amber-300">Explorar demonstração</button>
             </div>
           </div>
+        ) : graphData.nodes.length === 0 ? (
+          <div className="flex h-full items-center justify-center px-6 text-center text-sm text-zinc-400" role="status">Nenhum artista encontrado neste período. Escolha outro intervalo para explorar.</div>
         ) : (
           <ForceGraph2D
             ref={fgRef}
+            width={graphSize.width}
+            height={graphSize.height}
             graphData={filteredGraph}
             backgroundColor="#090A0F"
             nodeRelSize={1}
@@ -321,11 +449,7 @@ export default function SpotifyConstellationGraph() {
               ctx.fill();
             }}
             onNodeHover={(node) => setHoverNode(node || null)}
-            onNodeClick={(node) => {
-              setSelectedNode((prev) => (prev?.id === node.id ? null : node));
-              fgRef.current?.centerAt(node.x, node.y, 600);
-              fgRef.current?.zoom(2.1, 600);
-            }}
+            onNodeClick={focusNode}
             onBackgroundClick={() => setSelectedNode(null)}
             linkWidth={(link) =>
               highlightLinks.has(link) ? link.weight * 4.5 : link.weight * 1.8
@@ -339,17 +463,18 @@ export default function SpotifyConstellationGraph() {
             linkDirectionalParticles={(link) => (highlightLinks.has(link) ? 2 : 0)}
             linkDirectionalParticleWidth={3}
             cooldownTicks={130}
+            onEngineStop={() => fgRef.current?.zoomToFit(300, 32)}
           />
         )}
       </main>
 
       {/* Painel Lateral Analítico */}
-      <aside className="w-96 border-l border-zinc-800/80 bg-zinc-900/90 p-6 backdrop-blur-xl overflow-y-auto z-20 flex flex-col gap-6">
+      <aside className="z-20 flex w-full shrink-0 flex-col gap-6 overflow-y-auto border-t border-zinc-800 bg-zinc-900/95 p-5 backdrop-blur-xl lg:w-[350px] lg:border-l lg:border-t-0">
         {graphData.metadata && (
           <div>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                Topologia do Seu Gosto
+                Topologia do seu gosto
               </h2>
               <span className="rounded bg-zinc-800 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-400">
                 {graphMode === "bipartite" ? "Bipartido" : "Unipartido"}
@@ -360,7 +485,7 @@ export default function SpotifyConstellationGraph() {
               <div className="rounded-xl bg-zinc-950/90 p-3 border border-zinc-800/80">
                 <span className="text-xs text-zinc-400">Modularidade (Q)</span>
                 <p className="text-xl font-bold text-[#1DB954]">
-                  {graphData.metadata.modularity_score}
+                  {graphData.metadata.modularity_score ?? "—"}
                 </p>
               </div>
               <div className="rounded-xl bg-zinc-950/90 p-3 border border-zinc-800/80">
@@ -374,20 +499,19 @@ export default function SpotifyConstellationGraph() {
             {graphData.metadata.bridge_artist && (
               <div className="rounded-xl bg-gradient-to-r from-emerald-950/60 to-zinc-950 p-4 border border-emerald-800/40 mb-4">
                 <span className="text-[11px] font-semibold uppercase text-emerald-400">
-                  Artista Mais Conector (Bridge Node)
+                  Artista ponte
                 </span>
                 <p className="text-base font-bold text-white mt-0.5">
                   {graphData.metadata.bridge_artist.name}
                 </p>
                 <p className="text-xs text-zinc-400 mt-1">
-                  Maior Centralidade de Intermediação (Betweenness:{" "}
-                  {graphData.metadata.bridge_artist.betweenness_centrality}).
+                  Intermediação na rede: {graphData.metadata.bridge_artist.betweenness_centrality}. Métrica inferida pelo BeatCode.
                 </p>
               </div>
             )}
 
             <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">
-              Seus Clusters Principais
+              Comunidades musicais
             </h3>
             <div className="space-y-2">
               {graphData.metadata.clusters?.slice(0, 5).map((cluster) => (
@@ -408,6 +532,21 @@ export default function SpotifyConstellationGraph() {
                     {cluster.artist_count} art.
                   </span>
                 </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {graphData.nodes.length > 0 && !loading && !graphError && (
+          <div className="border-t border-zinc-800 pt-5">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">Explorar por nome</h3>
+            <p className="mb-3 text-xs text-zinc-500">Selecione um nó para focar o mapa. As cores indicam comunidades calculadas pelo BeatCode.</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {graphData.nodes.filter((node) => node.node_type === "artist").slice(0, 12).map((node) => (
+                <button type="button" key={node.id} onClick={() => focusNode(node)} className="truncate rounded-lg border border-zinc-800 bg-zinc-950 px-2.5 py-2 text-left text-xs text-zinc-300 hover:border-zinc-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-400" title={node.name}>
+                  <span className="mr-2 inline-block h-2 w-2 rounded-full" style={{ backgroundColor: node.color }} aria-hidden="true" />
+                  {node.name}
+                </button>
               ))}
             </div>
           </div>
@@ -503,6 +642,7 @@ export default function SpotifyConstellationGraph() {
           </div>
         )}
       </aside>
+      </div>
     </div>
   );
 }

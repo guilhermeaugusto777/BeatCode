@@ -12,6 +12,9 @@ export default [
       globals: {
         fetch: "readonly",
         Image: "readonly",
+        ResizeObserver: "readonly",
+        requestAnimationFrame: "readonly",
+        cancelAnimationFrame: "readonly",
         process: "readonly",
       },
     },

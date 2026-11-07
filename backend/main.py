@@ -50,7 +50,7 @@ def validated_frontend_url(value: str) -> str:
 
 
 FRONTEND_URL = validated_frontend_url(
-    os.getenv("FRONTEND_URL", "http://127.0.0.1:8000")
+    os.getenv("FRONTEND_URL", "http://127.0.0.1:3000")
 )
 INDEX_HTML_PATH = Path(__file__).parent / "index.html"
 SESSION_COOKIE_NAME = "beatcode_session"

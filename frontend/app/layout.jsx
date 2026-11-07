@@ -1,8 +1,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Spotify Music Graph — Análise Topológica Musical",
-  description: "Visualização interativa em grafo de artistas, gêneros e comunidades musicais.",
+  title: "BeatCode — Seu mapa musical",
+  description: "Explore artistas, gêneros e comunidades em um mapa interativo da sua música.",
 };
 
 export default function RootLayout({ children }) {

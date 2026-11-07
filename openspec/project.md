@@ -5,8 +5,8 @@ Sistema full-stack de Ciência de Dados e Teoria dos Grafos que se conecta à AP
 
 ## Tech Stack
 - **Backend:** Python 3.11+, FastAPI, Uvicorn, Spotipy (Spotify Web API v1), NetworkX (grafos, árvore geradora máxima, centralidades e comunidades Louvain), Scikit-Learn (TF-IDF e Similaridade de Cosseno), NumPy.
-- **Frontend:** Next.js 14 (React 18), `react-force-graph-2d`, `d3-force`, Tailwind CSS (além de interface HTML5 Canvas standalone servida pelo FastAPI).
-- **Segurança & Autenticação:** OAuth 2.0 Authorization Code Flow estritamente aderente à RFC 8252 e às regras do Spotify (`http://127.0.0.1:8000/auth/callback` em loopback IPv4 explícito, sem uso de `localhost`).
+- **Frontend:** Next.js 16 (React 19), `react-force-graph-2d`, `d3-force`, Tailwind CSS. A interface HTML5 Canvas antiga continua servida pelo FastAPI durante a transição.
+- **Segurança & Autenticação:** OAuth 2.0 Authorization Code Flow com `state` por tentativa, sessões em memória por navegador e callback em `http://127.0.0.1:8000/auth/callback` no desenvolvimento local. O backend mantém os tokens; não há suporte a implantação pública multiworker nesta etapa.
 
 ## Architecture & Domain Conventions
 1. **Sparsification & Anti-Hairball:** Arestas entre artistas nunca devem ser criadas por simples interseção booleana de gêneros. O peso $W(u, v) \in [0, 1]$ combina:

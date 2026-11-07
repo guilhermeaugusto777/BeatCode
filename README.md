@@ -36,9 +36,9 @@ npm ci
 npm run dev
 ```
 
-Abra `http://127.0.0.1:3000` e escolha **Usar Dados Demo** para experimentar os dois grafos sem credenciais. A documentação da API fica em `http://127.0.0.1:8000/docs`.
+Abra `http://127.0.0.1:3000` e escolha **Explorar demonstração** para experimentar os dois grafos sem credenciais. A documentação da API fica em `http://127.0.0.1:8000/docs`.
 
-Para autenticação real, cadastre exatamente `http://127.0.0.1:8000/auth/callback` como Redirect URI no Spotify. Nesta etapa, o callback retorna por padrão à interface HTML em `http://127.0.0.1:8000`. Defina `FRONTEND_URL=http://127.0.0.1:3000` em `backend/.env` para retornar ao Next.js.
+Para autenticação real, cadastre exatamente `http://127.0.0.1:8000/auth/callback` como Redirect URI no Spotify. O callback retorna ao Next.js em `http://127.0.0.1:3000`. Se você já possui `backend/.env`, confira `FRONTEND_URL` e atualize esse valor. A interface HTML antiga permanece acessível na raiz do backend durante a comparação de funcionalidades.
 
 Cada navegador recebe um cookie `HttpOnly`, `SameSite=Lax` e um token de sessão aleatório. Os tokens Spotify e os estados OAuth ficam somente na memória do backend. O botão de saída deve chamar `POST /auth/logout`; essa operação elimina o cache local de tokens da sessão, sem revogação no provedor. A sessão expira após oito horas; o estado de autorização, após dez minutos. O modo demo continua público.
 

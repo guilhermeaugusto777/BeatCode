@@ -35,3 +35,18 @@ A interface SHALL disponibilizar controles dinâmicos sem recarregamento de pág
 - **GIVEN** o grafo carregado em tela
 - **WHEN** o usuário move o slider de limiar de `0.15` para `0.35`
 - **THEN** todas as arestas com `weight < 0.35` são ocultadas instantaneamente e a física de forças reorganiza o layout
+
+---
+
+### Requirement: Entrada e exploração na interface principal
+O Next.js SHALL apresentar duas ações iniciais claras: conectar a conta Spotify ou explorar a demonstração sem login. A interface SHALL consultar o estado da sessão antes de solicitar dados privados, preservar os dois modos de grafo e oferecer estados de carregamento, erro e vazio. O Canvas SHALL ajustar suas dimensões ao espaço disponível, e o usuário MUST poder selecionar artistas também por botões acessíveis ao teclado.
+
+#### Scenario: Demonstração sem autenticação
+- **GIVEN** um navegador sem sessão Spotify
+- **WHEN** o usuário abre a interface e escolhe a demonstração
+- **THEN** nenhum grafo privado é solicitado antes da escolha e os modos unipartido e bipartido ficam disponíveis
+
+#### Scenario: Retorno do OAuth e saída
+- **GIVEN** um navegador autenticado após o callback Spotify
+- **WHEN** o usuário abre o Next.js
+- **THEN** a interface apresenta o grafo da própria sessão e oferece uma ação de sair que invalida a sessão local
