@@ -1,0 +1,28 @@
+# Segredos e dados locais
+.env
+.env.*
+!.env.example
+.spotify_token_cache*
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+build/
+npm-debug.log*
+
+# Sistema operacional
+.DS_Store
+Thumbs.db

@@ -25,3 +25,8 @@ O sistema SHALL extrair os principais artistas (`me/top/artists`), principais fa
 - **GIVEN** um usuário autenticado (ou com `demo=true`)
 - **WHEN** é feita uma requisição `GET /api/graph?time_range=short_term&limit=50`
 - **THEN** o sistema coleta até 50 artistas e faixas correspondentes ao período `short_term` e cruza as colaborações com a biblioteca do usuário
+
+#### Scenario: Erros de extração com resposta estável
+- **GIVEN** uma requisição autenticada a `GET /api/graph`
+- **WHEN** o Spotify retorna token inválido, acesso proibido, limite de chamadas, indisponibilidade ou uma lista `items` incompleta
+- **THEN** a API retorna respectivamente `401`, `403`, `429`, `503` ou `502`, sem incluir a mensagem bruta do Spotify; no caso `429`, repassa `Retry-After` quando válido

@@ -1,48 +1,58 @@
-# Spotify Music Graph — Análise Topológica & Visualização em Rede
+# BeatCode
 
-Sistema completo de extração, modelagem em Teoria dos Grafos e visualização interativa do gosto musical via **Spotify Web API**, com suporte a:
-- **Grafo Unipartido (`Artistas ↔ Artistas`):** Ponderação via TF-IDF + Similaridade de Cosseno de gêneros, colaborações diretas em faixas e coocorrência temporal em sessões recentes, com poda topológica ($k$-NN + *Maximum Spanning Tree*).
-- **Grafo Bipartido (`Artistas ↔ Gêneros`):** Mapeia artistas e gêneros como dois conjuntos disjuntos de nós, evidenciando quais gêneros atuam como hubs conectores entre diferentes nichos.
-- **Comunidades & Centralidade:** Detecção automática de nichos via algoritmo de **Louvain** e identificação do **Artista Ponte** (*Betweenness Centrality*).
-- **Modo Demo Incluso:** Permite testar a visualização e alternar entre os modos Unipartido e Bipartido imediatamente, mesmo antes de configurar as chaves da API do Spotify.
+O BeatCode transforma dados musicais do Spotify em grafos interativos. O modo `artists` relaciona artistas por similaridade de gêneros, colaborações e proximidade no histórico recente. O modo `bipartite` liga artistas aos gêneros associados. Há um conjunto de demonstração que funciona sem credenciais.
 
----
+## Estrutura
 
-## 1. Configuração do Spotify Developer Dashboard (Requisito de Loopback IP)
+- `backend/main.py`: API FastAPI, autenticação Spotify, extração de dados e cálculos com NumPy, scikit-learn e NetworkX.
+- `backend/index.html`: interface HTML independente servida na raiz do backend.
+- `frontend/`: interface Next.js 14, React 18 e grafo Canvas 2D. Consulte também `frontend/package.json`.
+- `openspec/`: contrato OpenAPI e especificações do comportamento.
 
-Seguindo as regras de segurança do Spotify (que proíbem `localhost` em HTTP):
-1. Acesse o [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) e crie um App.
-2. Em **Redirect URIs**, adicione exatamente o IP explícito de loopback IPv4:
-   ```text
-   http://127.0.0.1:8000/auth/callback
-   ```
-3. Copie o **Client ID** e o **Client Secret** para o arquivo `backend/.env` (use `backend/.env.example` como base).
+## Pré-requisitos
 
----
+- Python 3.11 (recomendado para as versões fixadas em `backend/requirements.txt`).
+- Node.js e npm.
+- Conta e aplicativo no [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) apenas para testar dados reais.
 
-## 2. Executando o Backend (FastAPI + Spotipy + NetworkX)
+## Executar no Windows (PowerShell)
 
-```bash
-cd spotify-music-graph/backend
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-copy .env.example .env
-# Edite o arquivo .env com seu SPOTIPY_CLIENT_ID e SPOTIPY_CLIENT_SECRET
-uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+No primeiro terminal, a partir da raiz do repositório:
+
+```powershell
+cd backend
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+Copy-Item .env.example .env
+# Preencha SPOTIPY_CLIENT_ID e SPOTIPY_CLIENT_SECRET em .env para usar o Spotify.
+.\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
-
----
-
-## 3. Executando o Frontend (Next.js + React Force Graph 2D)
 
 Em outro terminal:
 
-```bash
-cd spotify-music-graph/frontend
-npm install
+```powershell
+cd frontend
+npm ci
 npm run dev
 ```
 
-Acesse **`http://127.0.0.1:3000`** no navegador.
-- Clique em **"Conectar Spotify"** para autenticar via OAuth 2.0, ou clique em **"Usar Dados Demo"** no topo da tela para explorar imediatamente o grafo Unipartido e Bipartido.
+Abra `http://127.0.0.1:3000` e escolha **Usar Dados Demo** para experimentar os dois grafos sem credenciais. A documentação da API fica em `http://127.0.0.1:8000/docs`.
+
+Para autenticação real, cadastre exatamente `http://127.0.0.1:8000/auth/callback` como Redirect URI no Spotify. O fluxo OAuth atual retorna, por padrão, à interface HTML em `http://127.0.0.1:8000`; a unificação do fluxo com o Next.js ainda está pendente. O projeto ainda usa um único cache local de token, portanto **não execute o login com contas diferentes no mesmo backend** até que haja isolamento de sessões.
+
+Mantenha ambos os servidores limitados a `127.0.0.1`. A versão atual do Next.js tem avisos de segurança no `npm audit`; a migração proposta está em `docs/PROPOSTA_EVOLUCAO.md`.
+
+## Verificação
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+```powershell
+cd frontend
+npm run build
+```
+
+O frontend ainda não possui scripts próprios de teste ou lint. Não coloque credenciais nem tokens no repositório.

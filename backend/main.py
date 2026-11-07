@@ -12,8 +12,10 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import RedirectResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from requests.exceptions import RequestException
 import spotipy
-from spotipy.oauth2 import SpotifyOAuth
+from spotipy.oauth2 import SpotifyOAuth, SpotifyOauthError
+from spotipy.exceptions import SpotifyException
 
 load_dotenv()
 
@@ -107,13 +109,93 @@ def auth_status():
 
 def get_spotify_client() -> spotipy.Spotify:
     sp_oauth = get_spotify_oauth()
-    token_info = sp_oauth.validate_token(sp_oauth.cache_handler.get_cached_token())
+    try:
+        token_info = sp_oauth.validate_token(sp_oauth.cache_handler.get_cached_token())
+    except SpotifyOauthError as exc:
+        raise HTTPException(
+            status_code=401,
+            detail="Sessão Spotify expirada. Conecte sua conta novamente.",
+        ) from exc
+    except (KeyError, TypeError) as exc:
+        raise HTTPException(
+            status_code=401,
+            detail="Sessão Spotify inválida. Conecte sua conta novamente.",
+        ) from exc
+    except RequestException as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Não foi possível renovar a sessão Spotify. Tente novamente.",
+        ) from exc
     if not token_info:
         raise HTTPException(
             status_code=401,
             detail="Usuário não autenticado no Spotify. Acesse http://127.0.0.1:8000/auth/login",
         )
+    if not isinstance(token_info, dict) or not token_info.get("access_token"):
+        raise HTTPException(
+            status_code=401,
+            detail="Sessão Spotify inválida. Conecte sua conta novamente.",
+        )
     return spotipy.Spotify(auth=token_info["access_token"])
+
+
+def fetch_spotify_items(
+    request_fn, source_name: str, required_fields: tuple[str, ...] = ()
+) -> List[Dict[str, Any]]:
+    """Extrai uma lista validada sem transformar resposta incompleta em lista vazia."""
+    try:
+        response = request_fn()
+    except SpotifyException as exc:
+        status = exc.http_status
+        if status == 401:
+            raise HTTPException(
+                status_code=401,
+                detail="Sessão Spotify expirada ou inválida. Conecte sua conta novamente.",
+            ) from exc
+        if status == 403:
+            raise HTTPException(
+                status_code=403,
+                detail="O Spotify não permitiu acesso a estes dados. Verifique as permissões da conta e do aplicativo.",
+            ) from exc
+        if status == 429:
+            retry_after = exc.headers.get("Retry-After") if exc.headers else None
+            headers = {"Retry-After": retry_after} if retry_after and retry_after.isdecimal() else None
+            raise HTTPException(
+                status_code=429,
+                detail="Limite temporário do Spotify atingido. Aguarde antes de tentar novamente.",
+                headers=headers,
+            ) from exc
+        if status >= 500:
+            raise HTTPException(
+                status_code=503,
+                detail="O Spotify está indisponível no momento. Tente novamente mais tarde.",
+            ) from exc
+        raise HTTPException(
+            status_code=502,
+            detail="O Spotify não conseguiu fornecer os dados solicitados.",
+        ) from exc
+    except RequestException as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Não foi possível conectar ao Spotify. Tente novamente mais tarde.",
+        ) from exc
+
+    if not isinstance(response, dict) or not isinstance(response.get("items"), list):
+        raise HTTPException(
+            status_code=502,
+            detail=f"Resposta incompleta do Spotify ao consultar {source_name}.",
+        )
+    items = response["items"]
+    if any(
+        not isinstance(item, dict)
+        or any(not isinstance(item.get(field), str) or not item[field] for field in required_fields)
+        for item in items
+    ):
+        raise HTTPException(
+            status_code=502,
+            detail=f"Resposta incompleta do Spotify ao consultar {source_name}.",
+        )
+    return items
 
 
 def build_genre_corpus(artists: List[Dict[str, Any]]) -> List[str]:
@@ -620,15 +702,24 @@ def get_music_graph(
         saved_tracks = demo_data["saved_tracks"]
     else:
         sp = get_spotify_client()
-        top_artists_resp = sp.current_user_top_artists(limit=limit, time_range=time_range)
-        top_tracks_resp = sp.current_user_top_tracks(limit=50, time_range=time_range)
-        recent_resp = sp.current_user_recently_played(limit=50)
-        saved_resp = sp.current_user_saved_tracks(limit=50)
-
-        artists = top_artists_resp.get("items", [])
-        top_tracks = top_tracks_resp.get("items", [])
-        recent_tracks = recent_resp.get("items", [])
-        saved_tracks = saved_resp.get("items", [])
+        artists = fetch_spotify_items(
+            lambda: sp.current_user_top_artists(limit=limit, time_range=time_range),
+            "artistas",
+            ("id", "name"),
+        )
+        top_tracks = fetch_spotify_items(
+            lambda: sp.current_user_top_tracks(limit=50, time_range=time_range),
+            "faixas principais",
+            ("id", "name"),
+        )
+        recent_tracks = fetch_spotify_items(
+            lambda: sp.current_user_recently_played(limit=50),
+            "histórico recente",
+        )
+        saved_tracks = fetch_spotify_items(
+            lambda: sp.current_user_saved_tracks(limit=50),
+            "faixas salvas",
+        )
 
     if graph_mode == "bipartite":
         return compute_bipartite_artist_genre_graph(
