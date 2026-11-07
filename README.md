@@ -1,173 +1,174 @@
-# BeatCode — Spotify 3D Music Graph & Topological Analysis
+# BeatCode
 
-Sistema completo e autônomo de extração, modelagem em Teoria dos Grafos e visualização tridimensional interativa do gosto musical via **Spotify Web API**, construído com **FastAPI**, **NetworkX**, **Three.js** e **Next.js 14**.
+<p align="center"><strong>Explore as conexões do seu gosto musical em grafos interativos.</strong><br>Uma aplicação open source que transforma dados autorizados do Spotify em redes de artistas, gêneros e comunidades.</p>
 
----
+<p align="center">
+  <img alt="Status" src="https://img.shields.io/badge/status-em%20desenvolvimento-1DB954?style=flat-square">
+  <img alt="Backend" src="https://img.shields.io/badge/Python-FastAPI-3776AB?style=flat-square&logo=python&logoColor=white">
+  <img alt="Frontend" src="https://img.shields.io/badge/Frontend-Next.js%2014-111111?style=flat-square&logo=nextdotjs&logoColor=white">
+  <img alt="Visualização" src="https://img.shields.io/badge/Grafo-3D%20%2B%202D-1DB954?style=flat-square">
+</p>
 
-## 🚀 Funcionalidades Principais
-
-1. **Visualização 3D Nativa (WebGL via Three.js / React Force Graph 3D):**
-   - Esferas 3D texturizadas com fotos em alta resolução dos artistas e cores representativas de comunidades musicais.
-   - Gêneros mapeados como poliedros facetados (icosaedros) com acabamento aramado.
-   - Arestas tridimensionais ponderadas com iluminação responsiva.
-   - Controles de Câmera completos em HUD flutuante: **Zoom In**, **Zoom Out**, **Orbit (Rotação Automática)**, **Enquadrar Grafo (`zoomToFit`)** e **Resetar Visão**.
-   - Navegação por mouse: Arraste com botão esquerdo para orbitar, botão direito para pan e scroll para zoom.
-   - Centralização e aproximação animada ao clicar em qualquer nó.
-
-2. **Modos de Grafo Topológico:**
-   - **Grafo Unipartido (`Artistas ↔ Artistas`):** Ponderação híbrida combinando TF-IDF e Similaridade de Cosseno de gêneros (65%), colaborações diretas em faixas (25%) e co-ocorrência em sessões de escuta (10%). Poda topológica com *k-Nearest Neighbors* ($k=5$) e preservação de conectividade via *Maximum Spanning Tree* (MST).
-   - **Grafo Bipartido (`Artistas ↔ Gêneros`):** Mapeamento estrito entre artistas e gêneros como partições disjuntas, evidenciando gêneros centrais que conectam diferentes vertentes musicais.
-
-3. **Métricas Analíticas e Detecção de Comunidades:**
-   - Particionamento em comunidades temáticas via algoritmo de **Louvain** determinístico e cálculo do índice de modularidade ($Q$).
-   - Identificação do **Artista Ponte** (*Bridge Artist*) através de **Centralidade de Intermediação** (*Betweenness Centrality* ponderada pelo inverso da distância).
-
-4. **Acessibilidade e Resiliência:**
-   - **Drawer de Busca por Teclado:** Pressione `/` a qualquer momento para abrir uma busca rápida de artistas e gêneros, com navegação por teclado e foco automático na câmera 3D.
-   - Suporte estrito a `prefers-reduced-motion` (desativa rotação contínua e aplica transições instantâneas de câmera).
-   - Detecção automática de aceleração gráfica com fallback transparente para Canvas 2D caso o WebGL não esteja disponível.
-   - Sanitização de entidades HTML em tooltips e liberação ativa de texturas Three.js na GPU (`.dispose()`).
-
-5. **Modo Demo Incluso:**
-   - Explore imediatamente os grafos 3D e 2D sem necessidade de credenciais do Spotify.
+<p align="center"><a href="#visão-geral">Sobre</a> · <a href="#funcionalidades">Funcionalidades</a> · <a href="#arquitetura">Arquitetura</a> · <a href="#instalação">Instalação</a></p>
 
 ---
 
-## 📋 Pré-requisitos (Windows / Linux / macOS)
+## Preview
 
-- **Python:** 3.10, 3.11, 3.12 ou 3.13
-- **Node.js:** 18.x, 20.x ou superior (com `npm`)
-- **Git**
+O grafo de artistas apresenta afinidades e comunidades calculadas a partir do dataset de demonstração incluído.
 
----
+<p align="center"><img src="docs/screenshots/grafo-artistas.png" width="100%" alt="Grafo de artistas do BeatCode com comunidades em cores distintas"></p>
+<p align="center"><sub>Aplicação local em modo demo · grafo de artistas · visualização 3D</sub></p>
 
-## 🔑 1. Configuração do Spotify Developer Dashboard (Regras 2026+)
+## Visão geral
 
-Para conectar sua conta pessoal do Spotify:
+O BeatCode conecta uma conta Spotify autorizada e transforma os principais artistas do ouvinte em uma rede explorável. O motor combina gêneros, colaborações em faixas e coocorrências recentes para revelar afinidades musicais.
 
-1. Acesse o [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) e faça login.
-2. Clique em **Create App**:
-   - **App Name:** `BeatCode`
-   - **App Description:** `Topological Music Graph Visualization`
-   - **Redirect URI:** Adicione obrigatoriamente o IP de loopback explícito IPv4 (o uso de `localhost` é expressamente rejeitado pela RFC 8252 e pelo Spotify):
-     ```text
-     http://127.0.0.1:8000/auth/callback
-     ```
-   - **APIs used:** Selecione `Web API`.
-3. Salve o aplicativo e acesse **Settings**:
-   - Copie o **Client ID** e o **Client Secret**.
-4. **Requisitos de Development Mode (Fevereiro 2026+):**
-   - O proprietário do app deve ter uma assinatura Spotify Premium ativa.
-   - Na aba **User Management**, adicione o e-mail da sua conta Spotify na allowlist (limite de até 5 usuários no modo de desenvolvimento).
+O modo demo, com dados fictícios incluídos, permite explorar a interface sem login ou credenciais. Os dados são ilustrativos e não representam uma conta real.
 
----
+## Funcionalidades
 
-## ⚙️ 2. Instalação e Execução do Backend
+- **Grafo de artistas:** afinidades compostas e comunidades destacadas por cor.
+- **Grafo bipartido:** relações entre artistas e gêneros em conjuntos separados.
+- **Visualização 3D e 2D:** Three.js/WebGL e Canvas 2D, com fallback quando WebGL não está disponível.
+- **Controles:** orbit, pan, zoom, enquadramento, reset da câmera e foco em nós.
+- **Busca e inspeção:** atalho `/`, filtros por tipo e navegação entre nós relacionados.
+- **Painel topológico:** modularidade, arestas, clusters e artista com maior centralidade de intermediação.
+- **Filtros:** três horizontes de tempo e limiar mínimo das arestas.
+- **OAuth 2.0:** autenticação Spotify no servidor; tokens fora do estado do cliente.
+- **Acessibilidade:** respeita `prefers-reduced-motion` e permite busca por teclado.
 
-Abra um terminal (PowerShell no Windows):
+### Grafo bipartido
+
+Artistas aparecem como nós circulares e gêneros como nós poligonais, com cores que distinguem comunidades e relações.
+
+<p align="center"><img src="docs/screenshots/grafo-bipartido.png" width="100%" alt="Grafo 3D bipartido entre artistas e gêneros"></p>
+
+### Busca e exploração
+
+A busca filtra nós por nome e tipo e permite selecioná-los para inspeção no grafo.
+
+<p align="center"><img src="docs/screenshots/explorador.png" width="80%" alt="Explorador de nós com busca e filtros"></p>
+
+## Galeria
+
+| Tela | Descrição |
+| --- | --- |
+| [Grafo de artistas](docs/screenshots/grafo-artistas.png) | Afinidades e comunidades. |
+| [Grafo 2D](docs/screenshots/grafo-2d.png) | Alternativa Canvas para explorar artistas. |
+| [Grafo bipartido](docs/screenshots/grafo-bipartido.png) | Relações entre artistas e gêneros. |
+| [Explorador](docs/screenshots/explorador.png) | Busca e seleção de nós. |
+
+Capturas feitas da aplicação local com o dataset demo. A viewport móvel foi exercitada, mas o canvas não renderizou de forma confiável durante a emulação; por isso, não é apresentada como captura completa.
+
+## Tecnologias
+
+| Camada | Stack |
+| --- | --- |
+| Frontend | Next.js 14, React 18, JavaScript/JSX, Tailwind CSS, Lucide React |
+| Visualização | `react-force-graph-3d`, `react-force-graph-2d`, Three.js, D3 Force |
+| Backend | Python, FastAPI, Uvicorn, Spotipy |
+| Ciência de dados | NetworkX, NumPy, scikit-learn (TF-IDF e similaridade de cosseno) |
+| API e autenticação | Spotify Web API, OAuth 2.0, OpenAPI 3.1 |
+| Testes | Pytest, HTTPX |
+| Persistência | Sem banco configurado; sessões OAuth e cache ficam em memória no servidor. |
+
+## Arquitetura
+
+O frontend Next.js consome a API FastAPI. O backend valida sessões OAuth no servidor, consulta a Spotify Web API e constrói os grafos; no modo demo, usa dados locais. A API mantém o contrato `metadata`, `nodes` e `links`.
+
+```mermaid
+flowchart LR
+    U[Pessoa usuária] --> FE[Frontend Next.js / React]
+    FE -->|REST /auth/* e /api/graph| API[Backend FastAPI]
+    API -->|OAuth e dados autorizados| SP[Spotify Web API]
+    API --> MEM[(Sessões e cache em memória)]
+    API --> ENG[NetworkX + scikit-learn]
+    DEMO[Dataset demo local] --> ENG
+    ENG -->|metadata, nodes, links| FE
+    FE --> VIZ[Canvas 2D / Three.js 3D]
+```
+
+### Motor topológico
+
+No modo `artists`, as conexões combinam similaridade de gêneros (65%), colaborações (25%) e coocorrência recente (10%). A rede usa vizinhos mais próximos (`k=5`) e árvore geradora máxima. Louvain calcula comunidades e modularidade; a centralidade de intermediação usa a distância inversa do peso. `bipartite` separa artistas e gêneros.
+
+## Estrutura do repositório
+
+```text
+.
+├── backend/
+│   ├── main.py                 # API, OAuth, demo e grafos
+│   ├── requirements.txt        # Dependências Python
+│   └── tests/                  # Testes do backend
+├── frontend/
+│   ├── app/                    # Página e estilos Next.js
+│   ├── components/             # Interface e grafo
+│   └── package.json            # Dependências e scripts npm
+├── docs/screenshots/           # Capturas reais
+├── openspec/                   # Especificações e OpenAPI
+└── notes/                      # Roadmap e notas
+```
+
+## Instalação
+
+### Pré-requisitos
+
+Git, Python 3.10 ou superior, Node.js 18.17 ou superior e npm.
+
+O modo demo não requer conta Spotify nem `.env`. Para OAuth, crie um app no [Spotify Developer Dashboard](https://developer.spotify.com/dashboard), configure as variáveis de `backend/.env.example` e use `http://127.0.0.1:8000/auth/callback` como redirect URI. Mantenha credenciais em `backend/.env`; nunca as publique.
+
+### 1. Clonar
 
 ```powershell
-# 1. Acesse a pasta do backend
-cd backend
+git clone https://github.com/guilhermeaugusto777/BeatCode.git
+cd BeatCode
+```
 
-# 2. Crie e ative o ambiente virtual
+### 2. Backend
+
+No Windows PowerShell:
+
+```powershell
+cd backend
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-
-# 3. Instale as dependências
 pip install -r requirements.txt
-
-# 4. Configure o arquivo de ambiente
-copy .env.example .env
-# Edite backend/.env e insira seu SPOTIPY_CLIENT_ID e SPOTIPY_CLIENT_SECRET
-
-# 5. Inicie o servidor FastAPI
 uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-O backend estará ativo em: **`http://127.0.0.1:8000`**  
-Documentação OpenAPI / Swagger: **`http://127.0.0.1:8000/docs`**
-
----
-
-## 🧪 3. Executando os Testes do Backend (Pytest)
-
-Com o ambiente virtual ativado:
+Para OAuth, em outro terminal na raiz, crie e preencha `backend/.env` a partir do exemplo. Para demo, pule essa etapa:
 
 ```powershell
-pytest -v
+Copy-Item backend/.env.example backend/.env
 ```
 
-A suíte conta com **46 testes automatizados** cobrindo:
-- OAuth 2.0, validação de `state` CSRF, rejeição de `localhost` e cookies HttpOnly.
-- Tratamento de exceções da API do Spotify (401 reconexão, 403 quota/allowlist, 429 Retry-After e degradação de fontes secundárias).
-- Limpeza oportunista e cap de saturação de memória (`MAX_ACTIVE_SESSIONS = 5000`).
-- Álgebra linear, TF-IDF, Louvain, k-NN, MST, centralidade de intermediação e casos de borda topológicos.
+### 3. Frontend
 
----
-
-## 🎨 4. Instalação e Execução do Frontend
-
-Em um segundo terminal:
+Em outro terminal na raiz:
 
 ```powershell
-# 1. Acesse a pasta do frontend
 cd frontend
-
-# 2. Instale os pacotes npm
-npm install
-
-# 3. Inicie o servidor de desenvolvimento
+npm ci
 npm run dev
 ```
 
-Acesse no navegador: **`http://127.0.0.1:3000`**
+Abra `http://127.0.0.1:3000` e selecione **Usar Dados Demo**. Swagger: `http://127.0.0.1:8000/docs`; contrato: `openspec/openapi.yaml`.
 
-### Para validar o build de produção do frontend:
+## Testes e qualidade
+
+Com o ambiente virtual ativo:
 
 ```powershell
+cd backend
+pytest -v tests
+```
+
+Não há scripts de teste nem lint no frontend. Para compilar:
+
+```powershell
+cd frontend
+npm ci
 npm run build
 ```
 
----
-
-## 🎮 5. Como Utilizar a Interface
-
-1. **Modo Demo:** Clique no botão de alternância **Demo** no cabeçalho para carregar imediatamente uma constelação musical de exemplo sem autenticação.
-2. **Conectar Spotify:** Acesse `http://127.0.0.1:8000/auth/login` ou clique no botão de login para autorizar via Spotify.
-3. **Alternar Modos:**
-   - **Artistas ↔ Artistas:** Revela agrupamentos de afinidade e colaboração direta.
-   - **Artistas ↔ Gêneros:** Revela os hubs centrais de gênero que unem seus artistas.
-4. **Filtros Temporais:** Alterne entre **4 Semanas**, **6 Meses** e **Histórico**.
-5. **Limiar de Arestas:** Use o slider de peso para filtrar conexões fracas e isolar os núcleos da rede.
-6. **Controles 3D:**
-   - **+ / -:** Zoom digital da câmera.
-   - **Orbit:** Inicia/pausa a rotação orbital contínua.
-   - **Enquadrar:** Executa `zoomToFit` suave englobando todos os nós visíveis.
-   - **Reset:** Retorna a câmera à coordenada inicial.
-   - **3D / 2D:** Alterna entre Three.js WebGL e Canvas 2D.
-7. **Busca Acessível:** Pressione `/` no teclado para abrir o Drawer de busca, digite o nome de qualquer artista ou gênero e clique para a câmera voar diretamente até ele.
-8. **Painel Analítico:** Clique em qualquer nó para abrir o painel lateral com métricas de centralidade, comunidade, top faixas e vizinhos navegáveis.
-
----
-
-## 🔧 6. Guia de Solução de Problemas (Troubleshooting)
-
-- **Erro `ExecutionPolicy` no PowerShell ao ativar `.venv`:**
-  Execute: `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` e ative novamente.
-- **Erro de Redirect URI no login do Spotify:**
-  Certifique-se de que cadastrou `http://127.0.0.1:8000/auth/callback` no Spotify Developer Dashboard. O uso de `localhost` é estritamente proibido pelo Spotify e retornará erro 500 pelo backend.
-- **Erro 403 Forbidden na API do Spotify:**
-  Sua conta Spotify deve ser Premium e estar adicionada na seção **User Management** do aplicativo no Developer Dashboard.
-- **Porta 8000 ou 3000 já em uso:**
-  Finalize processos anteriores ou execute em portas alternativas via `uvicorn main:app --port 8001` e `next dev -p 3001`.
-- **Aceleração 3D lenta em máquinas antigas:**
-  Clique no botão **3D / 2D** no HUD de controles para utilizar o modo Canvas 2D otimizado.
-
----
-
-## 🏛️ 7. Decisões Arquiteturais
-
-- **Zero-Disk Footprint:** As sessões residem exclusivamente na memória RAM do backend (`MemoryCacheHandler`), com cookies criptográficos seguros, expurgo TTL de 24 horas e teto FIFO contra esgotamento de memória. Nenhum dado do usuário ou token é gravado em disco.
-- **Determinismo Matemático Estrito:** Análise topológica baseada em álgebra linear e teoria dos grafos clássica, com tempo de resposta sub-milissegundo e sem custos ou alucinações de LLMs.
-- **Renderização Client-Side Estrita (Next.js 14):** Os componentes gráficos 3D e 2D utilizam `dynamic(..., { ssr: false })`, eliminando erros de compilação ou de hidratação no servidor Node.js.
