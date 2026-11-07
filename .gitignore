@@ -22,6 +22,7 @@ out/
 dist/
 build/
 npm-debug.log*
+.playwright-cli/
 
 # Sistema operacional
 .DS_Store

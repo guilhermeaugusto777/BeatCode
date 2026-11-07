@@ -4,7 +4,7 @@
 
 - Produto: visualização do gosto musical do Spotify em grafos de artistas e gêneros.
 - `backend/main.py`: API FastAPI, OAuth com Spotipy, extração e cálculo com NumPy, scikit-learn e NetworkX. `backend/index.html` é uma interface independente servida na raiz da API.
-- `frontend/`: interface Next.js 14, React 18, Tailwind e `react-force-graph-2d`. Por padrão, consulta a API em `http://127.0.0.1:8000`.
+- `frontend/`: interface Next.js 16, React 19, Tailwind e `react-force-graph-2d`. Por padrão, consulta a API em `http://127.0.0.1:8000`. Consulte também `frontend/AGENTS.md` gerado pelo Next.js.
 - `openspec/project.md`, `openspec/openapi.yaml` e `openspec/specs/` descrevem o contrato e as regras de domínio. Ao editar `openspec/`, siga também `openspec/AGENTS.md`.
 
 ## Trabalho no projeto
@@ -17,5 +17,5 @@
 ## Verificação disponível
 
 - Backend: em `backend/`, criar ambiente Python 3.11, instalar `requirements-dev.txt`, executar `python -m pytest -q` e iniciar com `uvicorn main:app --host 127.0.0.1 --port 8000 --reload`.
-- Frontend: em `frontend/`, usar `npm ci`, `npm run dev` e `npm run build`.
-- O frontend ainda não define comandos de teste ou lint automatizados. Não afirme que passaram; registre as verificações realmente executadas.
+- Frontend: em `frontend/`, usar `npm ci`, `npm run dev`, `npm run lint`, `npm run build` e `npm audit --audit-level=moderate`.
+- O frontend ainda não tem suíte automatizada de interação Canvas. Registre as verificações de navegador realmente executadas.

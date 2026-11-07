@@ -6,13 +6,13 @@ O BeatCode transforma dados musicais do Spotify em grafos interativos. O modo `a
 
 - `backend/main.py`: API FastAPI, autenticação Spotify, extração de dados e cálculos com NumPy, scikit-learn e NetworkX.
 - `backend/index.html`: interface HTML independente servida na raiz do backend.
-- `frontend/`: interface Next.js 14, React 18 e grafo Canvas 2D. Consulte também `frontend/package.json`.
+- `frontend/`: interface Next.js 16, React 19 e grafo Canvas 2D. Consulte também `frontend/package.json`.
 - `openspec/`: contrato OpenAPI e especificações do comportamento.
 
 ## Pré-requisitos
 
 - Python 3.11 (recomendado para as versões fixadas em `backend/requirements.txt`).
-- Node.js e npm.
+- Node.js 20.19+ e npm (validado localmente com Node 24.22.1).
 - Conta e aplicativo no [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) apenas para testar dados reais.
 
 ## Executar no Windows (PowerShell)
@@ -44,7 +44,7 @@ Cada navegador recebe um cookie `HttpOnly`, `SameSite=Lax` e um token de sessão
 
 **Limitação de desenvolvimento local:** as sessões são guardadas em memória de um único processo. Reiniciar o backend encerra todas as sessões; múltiplos workers não compartilham autenticação. Não publique esta versão como serviço multiusuário. Antes disso, será necessário um armazenamento de sessões compartilhado, política de implantação HTTPS, proteção operacional e revisão de logs. Use somente `127.0.0.1` para ambos os servidores locais; o CORS com credenciais permite apenas origens exatas configuradas.
 
-Mantenha ambos os servidores limitados a `127.0.0.1`. A versão atual do Next.js tem avisos de segurança no `npm audit`; a migração proposta está em `docs/PROPOSTA_EVOLUCAO.md`.
+Mantenha ambos os servidores limitados a `127.0.0.1`. O frontend usa Next.js 16 e React 19; verifique periodicamente `npm audit` e a compatibilidade das bibliotecas do grafo.
 
 ## Verificação
 
@@ -56,7 +56,9 @@ cd backend
 
 ```powershell
 cd frontend
+npm run lint
 npm run build
+npm audit --audit-level=moderate
 ```
 
-O frontend ainda não possui scripts próprios de teste ou lint. Não coloque credenciais nem tokens no repositório.
+O frontend possui lint, mas ainda não tem suíte automatizada de interação Canvas. Não coloque credenciais nem tokens no repositório.
