@@ -1,6 +1,11 @@
 import os
+import secrets
+import time
 from collections import defaultdict
+from dataclasses import dataclass, field
+from threading import RLock
 from typing import Dict, List, Any, Literal
+from urllib.parse import urlsplit
 
 import numpy as np
 import networkx as nx
@@ -8,12 +13,13 @@ from networkx.algorithms import community
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import RedirectResponse, FileResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import RedirectResponse, FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from requests.exceptions import RequestException
 import spotipy
+from spotipy.cache_handler import MemoryCacheHandler
 from spotipy.oauth2 import SpotifyOAuth, SpotifyOauthError
 from spotipy.exceptions import SpotifyException
 
@@ -25,8 +31,92 @@ app = FastAPI(
     version="1.0.0",
 )
 
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://127.0.0.1:8000")
+def validated_frontend_url(value: str) -> str:
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+        or "*" in value
+        or (parsed.scheme == "http" and parsed.hostname not in {"127.0.0.1", "::1"})
+    ):
+        raise ValueError("FRONTEND_URL deve ser uma origem HTTPS ou um endereço loopback HTTP exato.")
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+FRONTEND_URL = validated_frontend_url(
+    os.getenv("FRONTEND_URL", "http://127.0.0.1:8000")
+)
 INDEX_HTML_PATH = Path(__file__).parent / "index.html"
+SESSION_COOKIE_NAME = "beatcode_session"
+SESSION_TTL_SECONDS = 8 * 60 * 60
+STATE_TTL_SECONDS = 10 * 60
+MAX_SESSIONS = 256
+
+
+@dataclass
+class LocalSession:
+    cache_handler: MemoryCacheHandler = field(default_factory=MemoryCacheHandler)
+    created_at: float = field(default_factory=time.time)
+    pending_states: dict[str, float] = field(default_factory=dict)
+    active: bool = True
+
+
+SESSIONS: dict[str, LocalSession] = {}
+SESSIONS_LOCK = RLock()
+
+
+def invalidate_session(session: LocalSession) -> None:
+    session.active = False
+    session.pending_states.clear()
+    session.cache_handler.save_token_to_cache(None)
+
+
+def cleanup_expired_sessions(now: float | None = None) -> None:
+    now = time.time() if now is None else now
+    with SESSIONS_LOCK:
+        for session_id, session in list(SESSIONS.items()):
+            if not session.active or now - session.created_at >= SESSION_TTL_SECONDS:
+                invalidate_session(session)
+                del SESSIONS[session_id]
+            else:
+                session.pending_states = {
+                    state: created_at
+                    for state, created_at in session.pending_states.items()
+                    if now - created_at < STATE_TTL_SECONDS
+                }
+
+
+def get_session(request: Request, *, required: bool = False) -> LocalSession | None:
+    cleanup_expired_sessions()
+    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    with SESSIONS_LOCK:
+        session = SESSIONS.get(session_id) if session_id else None
+        if session and session.active:
+            return session
+    if required:
+        raise HTTPException(status_code=401, detail="Conecte sua conta Spotify para acessar estes dados.")
+    return None
+
+
+def set_session_cookie(response: RedirectResponse, request: Request, session_id: str) -> None:
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=session_id,
+        max_age=SESSION_TTL_SECONDS,
+        httponly=True,
+        samesite="lax",
+        secure=request.url.scheme == "https",
+        path="/",
+    )
+
+
+ALLOWED_ORIGINS = sorted({FRONTEND_URL, "http://127.0.0.1:3000"})
 
 
 @app.get("/", include_in_schema=False)
@@ -35,16 +125,20 @@ def serve_frontend():
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        FRONTEND_URL,
-        "http://127.0.0.1:3000",
-        "http://[::1]:3000",
-        "http://localhost:3000",
-    ],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
+
+
+@app.middleware("http")
+async def private_no_store(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/auth/") or request.url.path == "/api/graph":
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
+    return response
 
 SCOPES = "user-top-read user-read-recently-played user-library-read"
 
@@ -60,10 +154,25 @@ CLUSTER_PALETTE = [
 ]
 
 
-def get_spotify_oauth() -> SpotifyOAuth:
+def get_spotify_oauth(cache_handler: MemoryCacheHandler | None = None) -> SpotifyOAuth:
     client_id = os.getenv("SPOTIPY_CLIENT_ID")
     client_secret = os.getenv("SPOTIPY_CLIENT_SECRET")
     redirect_uri = os.getenv("SPOTIPY_REDIRECT_URI", "http://127.0.0.1:8000/auth/callback")
+    parsed_redirect = urlsplit(redirect_uri)
+    if (
+        parsed_redirect.path != "/auth/callback"
+        or parsed_redirect.query
+        or parsed_redirect.fragment
+        or (
+            parsed_redirect.scheme == "http"
+            and parsed_redirect.hostname not in {"127.0.0.1", "::1"}
+        )
+        or parsed_redirect.scheme not in {"http", "https"}
+        or not parsed_redirect.hostname
+        or parsed_redirect.username
+        or parsed_redirect.password
+    ):
+        raise HTTPException(status_code=500, detail="SPOTIPY_REDIRECT_URI inválido.")
 
     if not client_id or not client_secret or client_id == "seu_client_id_aqui":
         raise HTTPException(
@@ -76,47 +185,123 @@ def get_spotify_oauth() -> SpotifyOAuth:
         client_secret=client_secret,
         redirect_uri=redirect_uri,
         scope=SCOPES,
-        cache_path=".spotify_token_cache",
+        cache_handler=cache_handler or MemoryCacheHandler(),
         show_dialog=False,
     )
 
 
 @app.get("/auth/login")
-def login():
-    sp_oauth = get_spotify_oauth()
-    auth_url = sp_oauth.get_authorize_url()
-    return RedirectResponse(auth_url)
+def login(request: Request):
+    get_spotify_oauth()  # Valida configuração antes de emitir um cookie de sessão.
+    session = get_session(request)
+    with SESSIONS_LOCK:
+        session_id = request.cookies.get(SESSION_COOKIE_NAME) if session else None
+        if session is None or SESSIONS.get(session_id) is not session or not session.active:
+            if len(SESSIONS) >= MAX_SESSIONS:
+                oldest_id = min(SESSIONS, key=lambda key: SESSIONS[key].created_at)
+                invalidate_session(SESSIONS.pop(oldest_id))
+            session_id = secrets.token_urlsafe(32)
+            session = LocalSession()
+            SESSIONS[session_id] = session
+        state = secrets.token_urlsafe(32)
+        session.pending_states[state] = time.time()
+        if len(session.pending_states) > 5:
+            oldest_state = min(session.pending_states, key=session.pending_states.get)
+            session.pending_states.pop(oldest_state)
+
+    sp_oauth = get_spotify_oauth(session.cache_handler)
+    response = RedirectResponse(sp_oauth.get_authorize_url(state=state))
+    set_session_cookie(response, request, session_id)
+    return response
 
 
 @app.get("/auth/callback")
-def callback(code: str):
-    sp_oauth = get_spotify_oauth()
-    token_info = sp_oauth.get_access_token(code, as_dict=True)
-    if not token_info:
-        raise HTTPException(status_code=400, detail="Falha ao obter token OAuth 2.0 do Spotify.")
-    return RedirectResponse(FRONTEND_URL)
+def callback(
+    request: Request,
+    state: str | None = None,
+    code: str | None = None,
+    error: str | None = None,
+):
+    session = get_session(request, required=True)
+    with SESSIONS_LOCK:
+        valid_state = next(
+            (candidate for candidate in session.pending_states if state and secrets.compare_digest(candidate, state)),
+            None,
+        )
+        if valid_state is None:
+            raise HTTPException(status_code=400, detail="Estado OAuth inválido ou expirado.")
+        session.pending_states.pop(valid_state)
+
+    if error or not code:
+        raise HTTPException(status_code=400, detail="Autorização Spotify cancelada ou incompleta.")
+
+    sp_oauth = get_spotify_oauth(session.cache_handler)
+    try:
+        token_info = sp_oauth.get_access_token(code, as_dict=True, check_cache=False)
+    except SpotifyOauthError as exc:
+        raise HTTPException(status_code=400, detail="Não foi possível concluir a autenticação Spotify.") from exc
+    except RequestException as exc:
+        raise HTTPException(status_code=503, detail="Spotify indisponível durante a autenticação.") from exc
+    if not isinstance(token_info, dict) or not token_info.get("access_token"):
+        raise HTTPException(status_code=502, detail="Resposta de autenticação incompleta do Spotify.")
+    with SESSIONS_LOCK:
+        if not session.active or SESSIONS.get(request.cookies[SESSION_COOKIE_NAME]) is not session:
+            invalidate_session(session)
+            raise HTTPException(status_code=401, detail="Sessão expirada. Inicie o login novamente.")
+        session.cache_handler.save_token_to_cache(token_info)
+    response = RedirectResponse(FRONTEND_URL)
+    set_session_cookie(response, request, request.cookies[SESSION_COOKIE_NAME])
+    return response
 
 
 @app.get("/auth/status")
-def auth_status():
+def auth_status(request: Request):
+    session = get_session(request)
+    if session is None:
+        return {"authenticated": False}
     try:
-        sp_oauth = get_spotify_oauth()
+        sp_oauth = get_spotify_oauth(session.cache_handler)
         token_info = sp_oauth.validate_token(sp_oauth.cache_handler.get_cached_token())
-        return {"authenticated": bool(token_info)}
-    except Exception:
+        return {"authenticated": bool(token_info and token_info.get("access_token"))}
+    except (SpotifyOauthError, RequestException, KeyError, TypeError):
+        session.cache_handler.save_token_to_cache(None)
         return {"authenticated": False}
 
 
-def get_spotify_client() -> spotipy.Spotify:
-    sp_oauth = get_spotify_oauth()
+@app.post("/auth/logout")
+def logout(request: Request):
+    origin = request.headers.get("Origin")
+    if origin and origin not in ALLOWED_ORIGINS:
+        raise HTTPException(status_code=403, detail="Origem não permitida.")
+    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    with SESSIONS_LOCK:
+        session = SESSIONS.pop(session_id, None) if session_id else None
+        if session:
+            invalidate_session(session)
+    response = JSONResponse({"authenticated": False})
+    response.delete_cookie(
+        SESSION_COOKIE_NAME,
+        path="/",
+        httponly=True,
+        samesite="lax",
+        secure=request.url.scheme == "https",
+    )
+    return response
+
+
+def get_spotify_client(request: Request) -> spotipy.Spotify:
+    session = get_session(request, required=True)
+    sp_oauth = get_spotify_oauth(session.cache_handler)
     try:
         token_info = sp_oauth.validate_token(sp_oauth.cache_handler.get_cached_token())
     except SpotifyOauthError as exc:
+        session.cache_handler.save_token_to_cache(None)
         raise HTTPException(
             status_code=401,
             detail="Sessão Spotify expirada. Conecte sua conta novamente.",
         ) from exc
     except (KeyError, TypeError) as exc:
+        session.cache_handler.save_token_to_cache(None)
         raise HTTPException(
             status_code=401,
             detail="Sessão Spotify inválida. Conecte sua conta novamente.",
@@ -132,6 +317,7 @@ def get_spotify_client() -> spotipy.Spotify:
             detail="Usuário não autenticado no Spotify. Acesse http://127.0.0.1:8000/auth/login",
         )
     if not isinstance(token_info, dict) or not token_info.get("access_token"):
+        session.cache_handler.save_token_to_cache(None)
         raise HTTPException(
             status_code=401,
             detail="Sessão Spotify inválida. Conecte sua conta novamente.",
@@ -689,6 +875,7 @@ def get_demo_dataset() -> Dict[str, Any]:
 
 @app.get("/api/graph")
 def get_music_graph(
+    request: Request,
     time_range: Literal["short_term", "medium_term", "long_term"] = Query("medium_term"),
     graph_mode: Literal["artists", "bipartite"] = Query("artists"),
     limit: int = Query(50, ge=10, le=50),
@@ -701,25 +888,32 @@ def get_music_graph(
         recent_tracks = demo_data["recent_tracks"]
         saved_tracks = demo_data["saved_tracks"]
     else:
-        sp = get_spotify_client()
-        artists = fetch_spotify_items(
-            lambda: sp.current_user_top_artists(limit=limit, time_range=time_range),
-            "artistas",
-            ("id", "name"),
-        )
-        top_tracks = fetch_spotify_items(
-            lambda: sp.current_user_top_tracks(limit=50, time_range=time_range),
-            "faixas principais",
-            ("id", "name"),
-        )
-        recent_tracks = fetch_spotify_items(
-            lambda: sp.current_user_recently_played(limit=50),
-            "histórico recente",
-        )
-        saved_tracks = fetch_spotify_items(
-            lambda: sp.current_user_saved_tracks(limit=50),
-            "faixas salvas",
-        )
+        sp = get_spotify_client(request)
+        try:
+            artists = fetch_spotify_items(
+                lambda: sp.current_user_top_artists(limit=limit, time_range=time_range),
+                "artistas",
+                ("id", "name"),
+            )
+            top_tracks = fetch_spotify_items(
+                lambda: sp.current_user_top_tracks(limit=50, time_range=time_range),
+                "faixas principais",
+                ("id", "name"),
+            )
+            recent_tracks = fetch_spotify_items(
+                lambda: sp.current_user_recently_played(limit=50),
+                "histórico recente",
+            )
+            saved_tracks = fetch_spotify_items(
+                lambda: sp.current_user_saved_tracks(limit=50),
+                "faixas salvas",
+            )
+        except HTTPException as exc:
+            if exc.status_code == 401:
+                session = get_session(request)
+                if session:
+                    session.cache_handler.save_token_to_cache(None)
+            raise
 
     if graph_mode == "bipartite":
         return compute_bipartite_artist_genre_graph(

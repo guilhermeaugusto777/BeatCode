@@ -11,7 +11,7 @@
 
 - Antes de alterar um fluxo, confira a implementação, o contrato OpenAPI e a spec correspondente. Atualize a documentação quando o comportamento mudar.
 - Preserve os modos `artists` e `bipartite`, os três períodos do Spotify e o modo demo sem credenciais. Valide os formatos de resposta de ambos os grafos quando mexer no motor ou na API.
-- Trate o OAuth e os dados musicais como dados de usuário: nunca registre, exponha ou versione segredos e tokens. Não presuma que o cache local atual isole usuários; mudanças de autenticação ou implantação exigem decisão arquitetural explícita.
+- Trate o OAuth e os dados musicais como dados de usuário: nunca registre, exponha ou versione segredos e tokens. O isolamento atual usa sessões em memória por navegador e serve apenas ao desenvolvimento local; implantação pública exige decisão arquitetural explícita.
 - Prefira mudanças pequenas e verificáveis. Peça aprovação antes de alterar arquitetura, dependências, infraestrutura, autenticação, custos ou comportamento importante do produto.
 
 ## Verificação disponível

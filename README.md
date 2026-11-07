@@ -38,7 +38,11 @@ npm run dev
 
 Abra `http://127.0.0.1:3000` e escolha **Usar Dados Demo** para experimentar os dois grafos sem credenciais. A documentação da API fica em `http://127.0.0.1:8000/docs`.
 
-Para autenticação real, cadastre exatamente `http://127.0.0.1:8000/auth/callback` como Redirect URI no Spotify. O fluxo OAuth atual retorna, por padrão, à interface HTML em `http://127.0.0.1:8000`; a unificação do fluxo com o Next.js ainda está pendente. O projeto ainda usa um único cache local de token, portanto **não execute o login com contas diferentes no mesmo backend** até que haja isolamento de sessões.
+Para autenticação real, cadastre exatamente `http://127.0.0.1:8000/auth/callback` como Redirect URI no Spotify. Nesta etapa, o callback retorna por padrão à interface HTML em `http://127.0.0.1:8000`. Defina `FRONTEND_URL=http://127.0.0.1:3000` em `backend/.env` para retornar ao Next.js.
+
+Cada navegador recebe um cookie `HttpOnly`, `SameSite=Lax` e um token de sessão aleatório. Os tokens Spotify e os estados OAuth ficam somente na memória do backend. O botão de saída deve chamar `POST /auth/logout`; essa operação elimina o cache local de tokens da sessão, sem revogação no provedor. A sessão expira após oito horas; o estado de autorização, após dez minutos. O modo demo continua público.
+
+**Limitação de desenvolvimento local:** as sessões são guardadas em memória de um único processo. Reiniciar o backend encerra todas as sessões; múltiplos workers não compartilham autenticação. Não publique esta versão como serviço multiusuário. Antes disso, será necessário um armazenamento de sessões compartilhado, política de implantação HTTPS, proteção operacional e revisão de logs. Use somente `127.0.0.1` para ambos os servidores locais; o CORS com credenciais permite apenas origens exatas configuradas.
 
 Mantenha ambos os servidores limitados a `127.0.0.1`. A versão atual do Next.js tem avisos de segurança no `npm audit`; a migração proposta está em `docs/PROPOSTA_EVOLUCAO.md`.
 

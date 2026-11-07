@@ -14,13 +14,13 @@ servers:
 paths:
   /auth/login:
     get:
-      summary: Inicia o fluxo OAuth 2.0 Authorization Code no Spotify
+      summary: Inicia OAuth Authorization Code com state e sessão por navegador
       operationId: loginSpotify
       tags:
         - Autenticação
       responses:
         "307":
-          description: Redireciona o usuário para https://accounts.spotify.com/authorize
+          description: Redireciona ao Spotify e define cookie de sessão HttpOnly
 
   /auth/callback:
     get:
@@ -31,19 +31,27 @@ paths:
       parameters:
         - name: code
           in: query
-          required: true
+          required: false
           schema:
             type: string
           description: Código de autorização retornado pelo Spotify
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Estado imprevisível associado à tentativa de login deste navegador
       responses:
         "307":
           description: Token armazenado com sucesso; redireciona para o Frontend
         "400":
-          description: Falha ao obter o token OAuth 2.0
+          description: Estado inválido, autorização cancelada ou falha na troca do código
+        "401":
+          description: Sessão ausente ou expirada
 
   /auth/status:
     get:
-      summary: Verifica se há uma sessão Spotify OAuth válida em cache
+      summary: Verifica se este navegador possui uma sessão Spotify válida
       operationId: statusSpotify
       tags:
         - Autenticação
@@ -58,6 +66,18 @@ paths:
                   authenticated:
                     type: boolean
                     example: true
+
+  /auth/logout:
+    post:
+      summary: Invalida a sessão local e apaga o cookie deste navegador
+      operationId: logoutSpotify
+      tags:
+        - Autenticação
+      responses:
+        "200":
+          description: Sessão local invalidada
+        "403":
+          description: Origem da requisição não permitida
 
   /api/graph:
     get:

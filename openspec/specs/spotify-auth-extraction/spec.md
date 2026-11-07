@@ -13,8 +13,24 @@ Os escopos solicitados MUST incluir `user-top-read`, `user-read-recently-played`
 
 #### Scenario: Troca de código OAuth por Access Token no Callback
 - **GIVEN** que o usuário autorizou o aplicativo no Spotify
-- **WHEN** o Spotify redireciona para `GET /auth/callback?code=<AUTH_CODE>`
-- **THEN** o backend troca o `code` por um `access_token` e `refresh_token`, persiste o token em cache seguro e redireciona o navegador para `FRONTEND_URL`
+- **WHEN** o Spotify redireciona para `GET /auth/callback?code=<AUTH_CODE>&state=<STATE>`
+- **THEN** o backend valida e consome o `state` da sessão deste navegador, troca o `code` por tokens guardados exclusivamente em memória no backend e redireciona para `FRONTEND_URL`
+
+### Requirement: Isolamento local das sessões OAuth
+O sistema SHALL gerar um identificador aleatório de sessão por navegador e um `state` imprevisível por tentativa de login. O cookie de sessão MUST ser `HttpOnly`, `SameSite=Lax` e `Secure` sob HTTPS. Tokens e estados OAuth MUST permanecer no backend. O armazenamento em memória é temporário e destinado a um único processo local.
+
+#### Scenario: Contas independentes
+- **GIVEN** dois navegadores autenticados com contas Spotify diferentes
+- **WHEN** cada um consulta `GET /api/graph`
+- **THEN** cada resposta é calculada apenas com o token da respectiva sessão; a ausência de sessão autenticada retorna `401`
+
+#### Scenario: Estado inválido, sessão expirada e logout
+- **GIVEN** um `state` ausente, expirado, já utilizado ou pertencente a outro navegador
+- **WHEN** o callback recebe o estado
+- **THEN** a autorização é rejeitada sem vincular o token à sessão
+- **GIVEN** uma sessão expirada ou encerrada via `POST /auth/logout`
+- **WHEN** o navegador consulta dados privados
+- **THEN** a API retorna `401` e nenhum token local da sessão encerrada permanece disponível
 
 ---
 
