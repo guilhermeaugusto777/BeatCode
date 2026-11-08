@@ -35,7 +35,7 @@ O sistema SHALL gerar um identificador aleatório de sessão por navegador e um 
 ---
 
 ### Requirement: Multi-Horizon Musical Consumption Extraction
-O sistema SHALL extrair os principais artistas (`me/top/artists`), principais faixas (`me/top/tracks`), histórico recente (`me/player/recently-played`) e faixas salvas (`me/tracks`) suportando os três períodos temporais da API do Spotify: `short_term` (4 semanas), `medium_term` (6 meses) e `long_term` (histórico completo).
+O sistema SHALL extrair os principais artistas (`me/top/artists`), principais faixas (`me/top/tracks`), histórico recente (`me/player/recently-played`) e faixas salvas (`me/tracks`). Os três `time_range` da API (`short_term`, `medium_term`, `long_term`) se aplicam às consultas de top artistas e top faixas. O histórico recente e as faixas salvas são consultas separadas e não seguem esse parâmetro.
 
 #### Scenario: Extração parametrizada por período de tempo
 - **GIVEN** um usuário autenticado (ou com `demo=true`)

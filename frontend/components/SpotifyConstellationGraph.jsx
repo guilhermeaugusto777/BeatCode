@@ -19,6 +19,9 @@ const GRAPH_MODES = [
   { key: "bipartite", label: "Artistas ↔ Gêneros (Bipartido)" },
 ];
 
+const normalizeSearchText = (value) =>
+  String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR");
+
 export default function SpotifyConstellationGraph() {
   const fgRef = useRef(null);
   const graphContainerRef = useRef(null);
@@ -28,7 +31,8 @@ export default function SpotifyConstellationGraph() {
   const [timeRange, setTimeRange] = useState("medium_term");
   const [graphMode, setGraphMode] = useState("artists");
   const [experience, setExperience] = useState("checking");
-  const [minEdgeWeight, setMinEdgeWeight] = useState(0.15);
+  const [minEdgeWeight, setMinEdgeWeight] = useState(0.12);
+  const [searchQuery, setSearchQuery] = useState("");
   const [hoverNode, setHoverNode] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -144,6 +148,11 @@ export default function SpotifyConstellationGraph() {
     };
   }, [graphData, minEdgeWeight]);
 
+  const matchingNodes = useMemo(() => {
+    const query = normalizeSearchText(searchQuery.trim());
+    return graphData.nodes.filter((node) => normalizeSearchText(node.name).includes(query));
+  }, [graphData.nodes, searchQuery]);
+
   const activeNode = hoverNode || selectedNode;
 
   const { highlightNodes, highlightLinks } = useMemo(() => {
@@ -254,8 +263,10 @@ export default function SpotifyConstellationGraph() {
 
   const focusNode = (node) => {
     setSelectedNode((previous) => previous?.id === node.id ? null : node);
-    fgRef.current?.centerAt(node.x, node.y, 400);
-    fgRef.current?.zoom(2.1, 400);
+    if (Number.isFinite(node.x) && Number.isFinite(node.y)) {
+      fgRef.current?.centerAt(node.x, node.y, 400);
+      fgRef.current?.zoom(2.1, 400);
+    }
   };
 
   const leaveGraph = async () => {
@@ -391,9 +402,9 @@ export default function SpotifyConstellationGraph() {
           <input
             id="edge-threshold"
             type="range"
-            min="0.05"
+            min="0.12"
             max="0.65"
-            step="0.02"
+            step="0.01"
             value={minEdgeWeight}
             onChange={(e) => setMinEdgeWeight(parseFloat(e.target.value))}
             className="w-24 accent-[#1DB954] cursor-pointer"
@@ -474,7 +485,7 @@ export default function SpotifyConstellationGraph() {
           <div>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                Topologia do seu gosto
+                Rede calculada pelo BeatCode
               </h2>
               <span className="rounded bg-zinc-800 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-400">
                 {graphMode === "bipartite" ? "Bipartido" : "Unipartido"}
@@ -483,23 +494,27 @@ export default function SpotifyConstellationGraph() {
 
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div className="rounded-xl bg-zinc-950/90 p-3 border border-zinc-800/80">
-                <span className="text-xs text-zinc-400">Modularidade (Q)</span>
+                <span className="text-xs text-zinc-400">Modularidade (rede completa)</span>
                 <p className="text-xl font-bold text-[#1DB954]">
                   {graphData.metadata.modularity_score ?? "—"}
                 </p>
               </div>
               <div className="rounded-xl bg-zinc-950/90 p-3 border border-zinc-800/80">
-                <span className="text-xs text-zinc-400">Arestas Visíveis</span>
+                <span className="text-xs text-zinc-400">Arestas visíveis</span>
                 <p className="text-xl font-bold text-zinc-100">
-                  {filteredGraph.links.length}
+                  {filteredGraph.links.length} <span className="text-xs font-normal text-zinc-400">de {graphData.metadata.total_links}</span>
                 </p>
               </div>
             </div>
 
+            <p className="mb-4 text-xs leading-5 text-zinc-400">
+              O limiar oculta linhas na visualização. Modularidade, comunidades e artista ponte foram calculados na rede completa recebida da API e não mudam com este filtro.
+            </p>
+
             {graphData.metadata.bridge_artist && (
               <div className="rounded-xl bg-gradient-to-r from-emerald-950/60 to-zinc-950 p-4 border border-emerald-800/40 mb-4">
                 <span className="text-[11px] font-semibold uppercase text-emerald-400">
-                  Artista ponte
+                  Artista ponte da rede completa
                 </span>
                 <p className="text-base font-bold text-white mt-0.5">
                   {graphData.metadata.bridge_artist.name}
@@ -511,7 +526,7 @@ export default function SpotifyConstellationGraph() {
             )}
 
             <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">
-              Comunidades musicais
+              Comunidades da rede completa
             </h3>
             <div className="space-y-2">
               {graphData.metadata.clusters?.slice(0, 5).map((cluster) => (
@@ -540,15 +555,33 @@ export default function SpotifyConstellationGraph() {
         {graphData.nodes.length > 0 && !loading && !graphError && (
           <div className="border-t border-zinc-800 pt-5">
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">Explorar por nome</h3>
-            <p className="mb-3 text-xs text-zinc-500">Selecione um nó para focar o mapa. As cores indicam comunidades calculadas pelo BeatCode.</p>
-            <div className="grid grid-cols-2 gap-1.5">
-              {graphData.nodes.filter((node) => node.node_type === "artist").slice(0, 12).map((node) => (
-                <button type="button" key={node.id} onClick={() => focusNode(node)} className="truncate rounded-lg border border-zinc-800 bg-zinc-950 px-2.5 py-2 text-left text-xs text-zinc-300 hover:border-zinc-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-400" title={node.name}>
-                  <span className="mr-2 inline-block h-2 w-2 rounded-full" style={{ backgroundColor: node.color }} aria-hidden="true" />
-                  {node.name}
-                </button>
-              ))}
-            </div>
+            <p className="mb-3 text-xs text-zinc-500">Encontre qualquer artista ou gênero deste grafo. As cores indicam comunidades da rede completa.</p>
+            <label htmlFor="node-search" className="mb-1 block text-xs text-zinc-300">Buscar nó por nome</label>
+            <input
+              id="node-search"
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Artista ou gênero"
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white placeholder:text-zinc-500"
+            />
+            <p className="my-2 text-xs text-zinc-400" role="status" aria-live="polite">
+              {matchingNodes.length} {matchingNodes.length === 1 ? "resultado" : "resultados"} de {graphData.nodes.length} nós
+            </p>
+            {matchingNodes.length === 0 ? (
+              <p className="text-xs text-zinc-400">Nenhum nó corresponde à busca.</p>
+            ) : (
+              <ul className="grid max-h-48 grid-cols-2 gap-1.5 overflow-y-auto pr-1" aria-label="Resultados da busca">
+                {matchingNodes.map((node) => (
+                  <li key={node.id} className="min-w-0">
+                    <button type="button" onClick={() => focusNode(node)} aria-pressed={selectedNode?.id === node.id} className="w-full truncate rounded-lg border border-zinc-800 bg-zinc-950 px-2.5 py-2 text-left text-xs text-zinc-300 hover:border-zinc-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-400" title={node.name}>
+                      <span className="mr-2 inline-block h-2 w-2 rounded-full" style={{ backgroundColor: node.color }} aria-hidden="true" />
+                      <span className="sr-only">{node.node_type === "genre" ? "Gênero: " : "Artista: "}</span>{node.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 

@@ -12,11 +12,12 @@ Sistema full-stack de Ciência de Dados e Teoria dos Grafos que se conecta à AP
 1. **Sparsification & Anti-Hairball:** Arestas entre artistas nunca devem ser criadas por simples interseção booleana de gêneros. O peso $W(u, v) \in [0, 1]$ combina:
    - Similaridade de Cosseno sobre vetores TF-IDF de gêneros e sub-tokens ($\alpha = 0.65$)
    - Colaborações diretas em faixas do usuário ($\beta = 0.25$)
-   - Coocorrência temporal em sessões recentes de escuta ($\gamma = 0.10$)
+   - Adjacência na lista de reproduções recentes, sem usar `played_at` ($\gamma = 0.10$)
    - Poda topológica retendo a união entre os $k$-NN ($k=5$) de cada nó e a *Maximum Spanning Tree* (MST).
 2. **Modos de Visualização:**
    - `artists` (Unipartido): Nós são apenas artistas; arestas representam proximidade composta.
-   - `bipartite` (Bipartido): Dois conjuntos disjuntos de nós (`node_type="artist"` e `node_type="genre"`), destacando hubs de gênero.
+   - `bipartite` (Bipartido): Dois conjuntos disjuntos de nós (`node_type="artist"` e `node_type="genre"`); os hubs representam uma seleção de gêneros recebidos do Spotify, com pesos derivados da posição dos artistas, e não da fórmula do grafo de artistas.
 3. **Métricas Topológicas:**
    - Detecção de comunidades via algoritmo de **Louvain** (`modularity_score`).
-   - Identificação do **Artista Ponte** (*Bridge Node*) via maior *Betweenness Centrality* ponderada pela distância inversa ($d = 1 / W$).
+   - Identificação do **Artista Ponte** via maior *Betweenness Centrality*: distância inversa ($d = 1 / W$) no grafo de artistas; número de passos, sem peso, no bipartido. Os valores dos dois modos não são diretamente comparáveis.
+4. **Fonte metodológica permanente:** `docs/modelo-matematico.md` descreve o cálculo vigente; `docs/validacao-do-modelo.md` mantém casos reproduzíveis, alternativas experimentais e limitações.
