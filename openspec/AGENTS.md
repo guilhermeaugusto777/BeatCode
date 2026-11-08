@@ -9,7 +9,7 @@ Este diretório contém as especificações formais do projeto **Spotify Music G
   - `spotify-auth-extraction/spec.md`: Fluxo OAuth 2.0 (loopback `127.0.0.1`) e coleta de dados do Spotify.
   - `graph-topology-engine/spec.md`: Motor matemático TF-IDF, poda $k$-NN + MST, Louvain e modo Bipartido.
   - `interactive-force-graph-ui/spec.md`: Renderização Canvas 2D, destaque de ego-network, filtros e painel analítico.
-- `openspec/changes/`: Diretório para propostas de mudanças futuras (`proposal.md`, `tasks.md`, deltas de spec).
+- `openspec/changes/`: Convenção reservada para propostas futuras, se o diretório vier a ser criado; não confunda propostas com comportamento implementado.
 
 ## Formato das Especificações
 Cada arquivo `spec.md` utiliza requisitos normativos (`SHALL` / `MUST`) acompanhados de cenários verificáveis no formato `#### Scenario:` (`GIVEN` / `WHEN` / `THEN`).

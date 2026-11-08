@@ -2,10 +2,10 @@
 
 ## Requirements
 
-### Requirement: Composite Edge Weighting (TF-IDF + Collaborations + Session Co-listening)
+### Requirement: Composite Edge Weighting (TF-IDF + Collaborations + Recent-list Adjacency)
 No modo Unipartido (`graph_mode=artists`), o sistema SHALL calcular o peso $W(u, v) \in [0, 1]$ entre dois artistas $u$ e $v$ pela combinação convexa:
 $$W(u, v) = 0.65 \cdot S_{\text{genre}}(u, v) + 0.25 \cdot S_{\text{collab}}(u, v) + 0.10 \cdot S_{\text{session}}(u, v)$$
-Onde $S_{\text{genre}}(u, v)$ é a Similaridade de Cosseno sobre os vetores TF-IDF dos gêneros e radicais semânticos, $S_{\text{collab}}(u, v)$ mede colaborações diretas nas faixas do usuário, e $S_{\text{session}}(u, v)$ mede coocorrência temporal em janela deslizante ($w=3$) no histórico recente.
+Onde $S_{\text{genre}}(u, v)$ é a similaridade de cosseno sobre vetores TF-IDF de rótulos completos e subtermos de gênero, $S_{\text{collab}}(u, v)$ mede colaborações diretas nas faixas consultadas, e $S_{\text{session}}(u, v)$ mede adjacência por posição numa janela deslizante ($w=3$) da lista recente. Esse último componente não usa `played_at` e não comprova proximidade temporal.
 Os rótulos compostos de gênero MUST ser preservados como tokens completos, inclusive quando contiverem `&` ou hífen. O modelo atual ainda inclui subtermos independentes e não usa `played_at` no componente de coescuta; ambos são hipóteses metodológicas em avaliação.
 
 #### Scenario: Penalização de gêneros guarda-chuva via TF-IDF
@@ -16,7 +16,7 @@ Os rótulos compostos de gênero MUST ser preservados como tokens completos, inc
 ---
 
 ### Requirement: Anti-Hairball Topological Sparsification (k-NN + Maximum Spanning Tree)
-O sistema SHALL podar o grafo denso retendo apenas a união entre as $k$ arestas mais fortes de cada nó ($k=5$, com $W(u,v) \ge 0.12$) e a Árvore Geradora Máxima (*Maximum Spanning Tree* — MST) do grafo bruto.
+O sistema SHALL podar o grafo denso retendo apenas a união entre as $k$ arestas mais fortes elegíveis de cada nó ($k=5$) e a Árvore Geradora Máxima (*Maximum Spanning Tree* — MST) do grafo **já filtrado por $W(u,v) \ge 0.12$**. Se houver componentes desconexos, a árvore é uma floresta e não recupera arestas abaixo do limiar.
 
 #### Scenario: Preservação de pontes entre comunidades sem formar "bola de pelos"
 - **GIVEN** um conjunto de 50 artistas com matriz de adjacência densa
@@ -26,7 +26,7 @@ O sistema SHALL podar o grafo denso retendo apenas a união entre as $k$ arestas
 ---
 
 ### Requirement: Bipartite Artist-Genre Network Mode
-Quando `graph_mode=bipartite`, o sistema SHALL construir um grafo bipartido $B = (U, V, E)$ onde $U$ representa os nós de Artistas (`node_type="artist"`) e $V$ representa os nós de Gêneros (`node_type="genre"`), conectando cada artista aos seus gêneros relevantes com peso proporcional ao *affinity score* do artista.
+Quando `graph_mode=bipartite`, o sistema SHALL construir um grafo bipartido $B = (U, V, E)$ onde $U$ representa os nós de Artistas (`node_type="artist"`) e $V$ representa os nós de Gêneros (`node_type="genre"`). Inclui gêneros de pelo menos dois artistas e o primeiro gênero de um artista sem gênero compartilhado já selecionado. A aresta conecta o artista a um desses rótulos e recebe peso derivado de uma transformação interna da posição do artista no ranking, diferente do `affinity_score` exposto no nó. Não usa os três componentes do modo `artists`.
 
 #### Scenario: Geração do grafo bipartido Artistas ↔ Gêneros
 - **GIVEN** uma requisição `GET /api/graph?graph_mode=bipartite`
@@ -36,7 +36,7 @@ Quando `graph_mode=bipartite`, o sistema SHALL construir um grafo bipartido $B =
 ---
 
 ### Requirement: Community Detection & Bridge Artist Identification
-O sistema SHALL particionar o grafo em comunidades usando o algoritmo de **Louvain** ponderado por `weight`, calcular a modularidade $Q$ da rede, e identificar o **Artista Ponte** (*Bridge Artist*) através da maior Centralidade de Intermediação (*Betweenness Centrality*) com distância $d(u,v) = 1 / W(u,v)$.
+O sistema SHALL particionar o grafo em comunidades usando **Louvain** ponderado por `weight` e calcular a modularidade $Q$ da rede calculada. No modo `artists`, identifica o **Artista Ponte** pela maior Centralidade de Intermediação (*Betweenness Centrality*) com distância $d(u,v) = 1 / W(u,v)$. No modo `bipartite`, identifica o artista com maior centralidade usando caminhos por número de passos, sem peso. As métricas entre modos não são diretamente comparáveis.
 
 #### Scenario: Cálculo de clusters e artista conector
 - **GIVEN** o grafo construído em qualquer modo (`artists` ou `bipartite`)

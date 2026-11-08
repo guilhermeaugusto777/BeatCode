@@ -37,7 +37,7 @@ paths:
           description: Código de autorização retornado pelo Spotify
         - name: state
           in: query
-          required: true
+          required: false
           schema:
             type: string
           description: Estado imprevisível associado à tentativa de login deste navegador
@@ -93,7 +93,7 @@ paths:
             type: string
             enum: [short_term, medium_term, long_term]
             default: medium_term
-          description: Período de consumo (4 semanas, 6 meses ou histórico completo)
+          description: Recorte dos top artistas e top faixas; não se aplica ao histórico recente nem às faixas salvas
         - name: graph_mode
           in: query
           required: false
@@ -117,7 +117,7 @@ paths:
           schema:
             type: boolean
             default: false
-          description: Quando `true`, retorna o dataset de demonstração sem exigir login OAuth
+          description: Quando `true`, retorna o dataset de demonstração sem exigir login OAuth; caso contrário, requer sessão Spotify autenticada
       responses:
         "200":
           description: Estrutura completa do grafo com nós, arestas e metadados analíticos
@@ -232,8 +232,10 @@ components:
         affinity_score:
           type: number
           format: float
+          description: Transformação de ranking nos artistas; fração de artistas ligados no nó de gênero. Inferência do BeatCode, não score do Spotify.
         global_popularity:
           type: integer
+          description: Popularidade Spotify para artista; no nó de gênero, valor derivado da contagem local de artistas.
         val:
           type: number
           format: float
@@ -287,6 +289,7 @@ components:
           enum: [artist-artist, artist-genre]
         components:
           type: object
+          description: Presente apenas em arestas artist-artist; componentes normalizados antes da ponderação 0.65/0.25/0.10. Podem diferir do peso reconstruído por arredondamento.
           properties:
             genre_similarity:
               type: number
