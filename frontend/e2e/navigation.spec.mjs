@@ -53,6 +53,9 @@ test("short mobile viewport keeps a readable canvas and accessible connection li
   await expect.poll(async () => (await canvas.boundingBox())?.height).toBeGreaterThanOrEqual(360);
   const horizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   expect(horizontalOverflow).toBeLessThanOrEqual(0);
+  await expect(page.getByText("Ligações inferidas pelo BeatCode.")).toBeVisible();
+  const noteWidth = await page.getByText("Ligações inferidas pelo BeatCode.").locator("..").evaluate((element) => element.getBoundingClientRect().width);
+  expect(noteWidth).toBeLessThanOrEqual(210);
 
   await page.getByRole("button", { name: "Artista: Radiohead" }).tap();
   await page.getByRole("list", { name: "Conexões de Radiohead" }).getByRole("button", { name: /The Smile/ }).tap();
