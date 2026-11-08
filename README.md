@@ -1,50 +1,88 @@
 # BeatCode
 
-O BeatCode transforma dados musicais do Spotify em grafos interativos. O modo `artists` relaciona artistas por similaridade de gêneros, colaborações e proximidade no histórico recente. O modo `bipartite` liga artistas aos gêneros associados. Há um conjunto de demonstração que funciona sem credenciais.
+**Explore o seu mapa musical.** O BeatCode transforma dados autorizados do Spotify em grafos interativos de artistas e gêneros. Também há uma demonstração local que funciona sem conta nem credenciais.
 
-## Estrutura
+> **Estado do projeto:** aplicação local em desenvolvimento. A interface principal é **Next.js com Canvas 2D**; o backend usa FastAPI. O código ainda não possui licença open source definida pelos autores e não está preparado para implantação pública multiusuário.
 
-- `backend/main.py`: API FastAPI, autenticação Spotify, extração de dados e cálculos com NumPy, scikit-learn e NetworkX.
-- `backend/index.html`: interface HTML independente servida na raiz do backend.
-- `frontend/`: interface Next.js 16, React 19 e grafo Canvas 2D. Consulte também `frontend/package.json`.
-- `openspec/`: contrato OpenAPI e especificações do comportamento.
+## Conheça o produto
 
-## Pré-requisitos
+| Entrada | Grafo de artistas | Grafo artista–gênero |
+| --- | --- | --- |
+| [![Entrada do BeatCode com opções Spotify e demonstração](docs/screenshots/entrada.png)](docs/screenshots/entrada.png) | [![Grafo 2D de artistas no modo demo](docs/screenshots/artistas-2d.png)](docs/screenshots/artistas-2d.png) | [![Grafo 2D bipartido no modo demo](docs/screenshots/bipartido-2d.png)](docs/screenshots/bipartido-2d.png) |
 
-- `uv` com Python 3.11 (usado para criar o ambiente e instalar as versões fixadas em `backend/requirements.txt`); veja a [instalação oficial do uv](https://docs.astral.sh/uv/getting-started/installation/).
-- Node.js 20.19+ e npm (validado localmente com Node 24.22.1).
-- Conta e aplicativo no [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) apenas para testar dados reais.
+*Capturas da interface atual executada localmente em modo demo, sem dados de conta Spotify. No grafo de artistas da imagem, o zoom foi ajustado para mostrar as comunidades.*
 
-## Executar no Windows (PowerShell)
+### Funcionalidades atuais
 
-Execute os comandos a seguir na **raiz do checkout**, a pasta que contém este `README.md`, `backend/` e `frontend/`. No primeiro terminal:
+- **Começo claro:** conectar uma conta Spotify ou explorar a demonstração sem login.
+- **Dois grafos 2D:** relações inferidas entre artistas; incidência de rótulos Spotify entre artistas e gêneros no modo bipartido.
+- **Exploração:** zoom, foco em nós, busca textual de todos os artistas e gêneros recebidos, seleção por mouse ou teclado e painel de detalhes.
+- **Métricas visíveis:** comunidades coloridas, modularidade e artista ponte calculados pelo backend. O slider oculta arestas na tela; **não recalcula** essas métricas.
+- **Três recortes de top artistas e faixas:** `short_term`, `medium_term` e `long_term` quando uma conta está conectada. O histórico de reproduções recentes é consultado separadamente.
+- **OAuth local isolado por navegador:** cookies de sessão `HttpOnly`, tokens guardados no backend e logout local. O modo demo continua público.
+
+As conexões são **inferências do BeatCode**, não recomendações ou notas fornecidas pelo Spotify. Veja [como os pesos são calculados](docs/modelo-matematico.md) e [o que foi validado](docs/validacao-do-modelo.md).
+
+## Instalação local
+
+### Pré-requisitos
+
+- Python 3.11 e [`uv`](https://docs.astral.sh/uv/getting-started/installation/).
+- Node.js **20.19+** e npm (a validação local usou Node 24.22.1).
+- Git para clonar o projeto. Conta e aplicativo Spotify são opcionais para o modo demo.
+
+Clone o repositório e execute os comandos **na raiz do checkout** — a pasta que contém `backend/` e `frontend/`:
 
 ```powershell
-uv venv --python 3.11 backend\.venv
-uv pip install -r backend\requirements-dev.txt --python backend\.venv\Scripts\python.exe
-.\backend\.venv\Scripts\python.exe -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload
+git clone https://github.com/guilhermeaugusto777/BeatCode.git
+cd BeatCode
 ```
 
-Para usar dados reais do Spotify, copie `backend/.env.example` para `backend/.env` **somente se ainda não existir**, preencha o ID e o segredo localmente e mantenha o arquivo fora do Git. O modo demonstração funciona sem esse arquivo.
-
-Em outro terminal, também na raiz do checkout:
+**Windows PowerShell — terminal 1, API:**
 
 ```powershell
+uv venv --python 3.11 backend/.venv
+uv pip install -r backend/requirements-dev.txt --python backend/.venv/Scripts/python.exe
+backend/.venv/Scripts/python.exe -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload
+```
+
+**macOS/Linux — terminal 1, API:**
+
+```sh
+uv venv --python 3.11 backend/.venv
+uv pip install -r backend/requirements-dev.txt --python backend/.venv/bin/python
+backend/.venv/bin/python -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload
+```
+
+**Terminal 2, interface (todos os sistemas):**
+
+```sh
 npm ci --prefix frontend
 npm run dev --prefix frontend
 ```
 
-Abra `http://127.0.0.1:3000` e escolha **Explorar demonstração** para experimentar os dois grafos sem credenciais. A documentação da API fica em `http://127.0.0.1:8000/docs`.
+Abra **http://127.0.0.1:3000** e escolha **Explorar demonstração**. Teste ambos os grafos sem criar `.env`. A documentação interativa da API fica em **http://127.0.0.1:8000/docs**; o contrato versionado está em [`openspec/openapi.yaml`](openspec/openapi.yaml).
 
-Para autenticação real, cadastre exatamente `http://127.0.0.1:8000/auth/callback` como Redirect URI no Spotify. O callback retorna ao Next.js em `http://127.0.0.1:3000`. Se você já possui `backend/.env`, confira `FRONTEND_URL` e atualize esse valor. A interface HTML antiga permanece acessível na raiz do backend durante a comparação de funcionalidades.
+### Conectar uma conta Spotify (opcional)
 
-Cada navegador recebe um cookie `HttpOnly`, `SameSite=Lax` e um token de sessão aleatório. Os tokens Spotify e os estados OAuth ficam somente na memória do backend. O botão de saída deve chamar `POST /auth/logout`; essa operação elimina o cache local de tokens da sessão, sem revogação no provedor. A sessão expira após oito horas; o estado de autorização, após dez minutos. O modo demo continua público.
+Crie um aplicativo no [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) e cadastre exatamente `http://127.0.0.1:8000/auth/callback` como Redirect URI. Copie `backend/.env.example` para `backend/.env`, preencha `SPOTIPY_CLIENT_ID` e `SPOTIPY_CLIENT_SECRET` localmente e reinicie a API. Confira que `FRONTEND_URL` usa a origem exibida no navegador, normalmente `http://127.0.0.1:3000`. Não versione o `.env`.
 
-**Limitação de desenvolvimento local:** as sessões são guardadas em memória de um único processo. Reiniciar o backend encerra todas as sessões; múltiplos workers não compartilham autenticação. Não publique esta versão como serviço multiusuário. Antes disso, será necessário um armazenamento de sessões compartilhado, política de implantação HTTPS, proteção operacional e revisão de logs. Use somente `127.0.0.1` para ambos os servidores locais; o CORS com credenciais permite apenas origens exatas configuradas.
+O botão **Conectar minha conta Spotify** inicia o fluxo OAuth. O botão de saída invalida a sessão **local**; não revoga a autorização no Spotify. Não use `localhost` em um serviço e `127.0.0.1` no outro, pois cookies e origem precisam coincidir.
 
-Mantenha ambos os servidores limitados a `127.0.0.1`. O frontend usa Next.js 16 e React 19; verifique periodicamente `npm audit` e a compatibilidade das bibliotecas do grafo.
+## Arquitetura e documentação
+
+```text
+frontend/       Next.js 16, React 19, Canvas 2D e busca
+backend/        FastAPI, OAuth, dataset demo, motor e testes
+openspec/       contrato OpenAPI e requisitos verificáveis
+docs/           arquitetura, método matemático, validação e capturas
+```
+
+O Next.js consulta a API FastAPI. A API usa o dataset demo ou, após autorização, consulta a Spotify Web API e devolve `metadata`, `nodes` e `links`. Sessões e tokens ficam em memória de um único processo. A página `backend/index.html` ainda existe como interface legada durante a transição, mas não é a interface principal. Leia a [arquitetura e seus limites](docs/arquitetura.md).
 
 ## Verificação
+
+Após instalar as dependências, na raiz do checkout (PowerShell):
 
 ```powershell
 Push-Location backend
@@ -53,13 +91,11 @@ Pop-Location
 npm run lint --prefix frontend
 npm run build --prefix frontend
 npm audit --prefix frontend --audit-level=moderate
-uvx pip-audit -r backend\requirements.txt --progress-spinner off
+uvx pip-audit -r backend/requirements-dev.txt --progress-spinner off
 ```
 
-Os testes Python entram temporariamente em `backend/` porque importam `main` diretamente. Para incluir as dependências de teste na auditoria, execute também `uvx pip-audit -r backend\requirements-dev.txt --progress-spinner off`.
+O equivalente macOS/Linux usa `backend/.venv/bin/python` dentro de `backend/`. Os testes de autenticação usam mocks; não precisam de conta Spotify. Os experimentos reproduzíveis e os comandos estão em [Validação do modelo](docs/validacao-do-modelo.md). O frontend ainda não possui teste automatizado de interação Canvas; verifique mudanças visuais em navegador.
 
-O frontend possui lint, mas ainda não tem suíte automatizada de interação Canvas. Não coloque credenciais nem tokens no repositório.
+## Contribuição, segurança e licença
 
-A revisão metodológica e os casos de referência do motor estão em `docs/REVISAO_MODELO_MATEMATICO.md`. Nenhuma fórmula foi alterada nessa revisão.
-
-Os estudos desta fase estão em `docs/ESTUDO_GENEROS.md` e `docs/ESTUDO_TEMPORAL.md`. A proposta de explicação das ligações está em `docs/PROPOSTA_INTERPRETABILIDADE.md`; a auditoria de dependências e o roteiro de autenticação real estão em `docs/SEGURANCA_E_VALIDACAO.md`. A configuração de validação automática proposta está em `docs/PROPOSTA_CI.md`.
+Leia [`CONTRIBUTING.md`](CONTRIBUTING.md) antes de enviar um PR. Para relatar um problema de segurança, siga [`SECURITY.md`](SECURITY.md) e não publique dados sensíveis em issues. **Licença pendente de decisão dos autores:** até existir um arquivo `LICENSE`, não presuma permissão para redistribuir ou relicenciar o código, marcas, capturas ou dados de terceiros.
