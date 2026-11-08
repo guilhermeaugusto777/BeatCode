@@ -17,6 +17,7 @@
 - **Começo claro:** conectar uma conta Spotify ou explorar a demonstração sem login.
 - **Dois grafos 2D:** relações inferidas entre artistas; incidência de rótulos Spotify entre artistas e gêneros no modo bipartido.
 - **Exploração:** zoom, foco em nós, busca textual de todos os artistas e gêneros recebidos, seleção por mouse ou teclado e painel de detalhes.
+- **Inspetor de conexões:** selecione uma linha no Canvas ou uma ligação na lista acessível. No grafo de artistas, o painel mostra o peso informado pela API e contribuições aproximadas de gêneros, colaborações e coescuta; no bipartido, explica a relação artista–gênero separadamente.
 - **Métricas visíveis:** comunidades coloridas, modularidade e artista ponte calculados pelo backend. O slider oculta arestas na tela; **não recalcula** essas métricas.
 - **Três recortes de top artistas e faixas:** `short_term`, `medium_term` e `long_term` quando uma conta está conectada. O histórico de reproduções recentes é consultado separadamente.
 - **OAuth local isolado por navegador:** cookies de sessão `HttpOnly`, tokens guardados no backend e logout local. O modo demo continua público.
@@ -89,12 +90,13 @@ Push-Location backend
 .\.venv\Scripts\python.exe -m pytest -q
 Pop-Location
 npm run lint --prefix frontend
+npm test --prefix frontend
 npm run build --prefix frontend
 npm audit --prefix frontend --audit-level=moderate
 uvx pip-audit -r backend/requirements-dev.txt --progress-spinner off
 ```
 
-O equivalente macOS/Linux usa `backend/.venv/bin/python` dentro de `backend/`. Os testes de autenticação usam mocks; não precisam de conta Spotify. Os experimentos reproduzíveis e os comandos estão em [Validação do modelo](docs/validacao-do-modelo.md). O frontend ainda não possui teste automatizado de interação Canvas; verifique mudanças visuais em navegador. Em viewport móvel estreita, rótulos de nós de redes densas podem se sobrepor; a busca textual é o caminho mais legível para localizar um nó.
+O equivalente macOS/Linux usa `backend/.venv/bin/python` dentro de `backend/`. Os testes de autenticação usam mocks; não precisam de conta Spotify. Os experimentos reproduzíveis e os comandos estão em [Validação do modelo](docs/validacao-do-modelo.md). Os testes do frontend verificam a transformação dos componentes das conexões; ainda não automatizam interação Canvas. Em telas móveis, o Canvas reduz os rótulos em escala pequena e a lista de conexões permite seleção por teclado ou toque quando uma linha é difícil de alcançar.
 
 ## Contribuição, segurança e licença
 

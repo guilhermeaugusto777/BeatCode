@@ -15,6 +15,7 @@ export default [
         ResizeObserver: "readonly",
         requestAnimationFrame: "readonly",
         cancelAnimationFrame: "readonly",
+        window: "readonly",
         process: "readonly",
       },
     },

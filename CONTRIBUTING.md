@@ -17,6 +17,7 @@ Push-Location backend
 .\.venv\Scripts\python.exe -m pytest -q
 Pop-Location
 npm run lint --prefix frontend
+npm test --prefix frontend
 npm run build --prefix frontend
 npm audit --prefix frontend --audit-level=moderate
 uvx pip-audit -r backend\requirements-dev.txt --progress-spinner off
