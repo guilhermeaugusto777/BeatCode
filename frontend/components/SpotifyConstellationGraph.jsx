@@ -465,9 +465,10 @@ export default function SpotifyConstellationGraph() {
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
       {/* Canvas Principal */}
       <main ref={graphContainerRef} className="relative min-h-[max(360px,52vh)] min-w-0 flex-1 lg:min-h-0" aria-label="Mapa musical interativo">
-        <div className="pointer-events-none absolute left-4 top-4 z-10 max-w-xs rounded-xl border border-zinc-800/80 bg-zinc-950/85 px-4 py-3 text-xs text-zinc-300 backdrop-blur-sm">
+        <div className="pointer-events-none absolute left-4 top-4 z-10 max-w-[210px] rounded-xl border border-zinc-800/80 bg-zinc-950/85 px-3 py-2 text-xs text-zinc-300 backdrop-blur-sm sm:max-w-xs sm:px-4 sm:py-3">
           <strong className="block text-sm text-white">{graphMode === "artists" ? "Artista ↔ artista" : "Artista ↔ gênero"}</strong>
-          <span>{graphMode === "artists" ? "As linhas representam afinidade inferida pelo BeatCode." : "Os hexágonos representam gêneros catalogados no Spotify."}</span>
+          <span className="sm:hidden">{graphMode === "artists" ? "Ligações inferidas pelo BeatCode." : "Hexágonos: gêneros do Spotify."}</span>
+          <span className="hidden sm:inline">{graphMode === "artists" ? "As linhas representam afinidade inferida pelo BeatCode." : "Os hexágonos representam gêneros catalogados no Spotify."}</span>
         </div>
         {loading ? (
           <div className="flex h-full items-center justify-center px-6 text-center text-sm text-zinc-400" role="status">

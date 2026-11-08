@@ -25,6 +25,19 @@ uvx pip-audit -r backend\requirements-dev.txt --progress-spinner off
 
 Em macOS/Linux, use `backend/.venv/bin/python` no lugar do executável Windows. Registre no PR comandos executados, resultados e verificações manuais. Lint e build não validam sozinhos interação com o Canvas; quando a interface mudar, confira teclado, toque ou mouse, telas pequenas, estados de erro e ambos os modos de grafo. Os testes Python cobrem a API e os cálculos, mas não substituem essa verificação visual.
 
+### Testes de navegação
+
+Com `backend/.venv` e as dependências do README instaladas, use Node.js 22 ou 24 para a suíte Playwright. Libere as portas locais 8000 e 3000: o teste inicia seus próprios servidores e falha se outro processo já estiver usando essas portas. Não são necessárias credenciais Spotify.
+
+```powershell
+Push-Location frontend
+npx playwright install --only-shell chromium
+npm run test:e2e
+Pop-Location
+```
+
+Em Linux, instale também as bibliotecas do navegador com `npx playwright install --with-deps --only-shell chromium`. O teste usa `backend/.venv` automaticamente; para outro ambiente Python, defina `BEATCODE_PYTHON` com o caminho do executável. A suíte cobre navegação, seleção textual de nós e ligações, limiar, troca de grafos e layout móvel. O toque em linhas específicas do Canvas ainda requer inspeção manual, pois posições de um layout de forças podem variar. Por enquanto, o GitHub Actions não executa essa suíte de navegador; a avaliação de custo está no PR que a introduziu.
+
 ## Contratos e modelo
 
 - Preserve `artists`, `bipartite` e `demo=true`. Ao mudar payload ou erro da API, atualize [`openspec/openapi.yaml`](openspec/openapi.yaml), a spec relevante e os testes.

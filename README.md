@@ -96,7 +96,7 @@ npm audit --prefix frontend --audit-level=moderate
 uvx pip-audit -r backend/requirements-dev.txt --progress-spinner off
 ```
 
-O equivalente macOS/Linux usa `backend/.venv/bin/python` dentro de `backend/`. Os testes de autenticação usam mocks; não precisam de conta Spotify. Os experimentos reproduzíveis e os comandos estão em [Validação do modelo](docs/validacao-do-modelo.md). Os testes do frontend verificam a transformação dos componentes das conexões; ainda não automatizam interação Canvas. Em telas móveis, o Canvas reduz os rótulos em escala pequena e a lista de conexões permite seleção por teclado ou toque quando uma linha é difícil de alcançar.
+O equivalente macOS/Linux usa `backend/.venv/bin/python` dentro de `backend/`. Os testes de autenticação usam mocks; não precisam de conta Spotify. Os experimentos reproduzíveis e os comandos estão em [Validação do modelo](docs/validacao-do-modelo.md). Os testes do frontend verificam a transformação dos componentes das conexões; os [testes Playwright de navegação](CONTRIBUTING.md#testes-de-navegação) cobrem os fluxos demo em desktop e móvel. O toque em linhas específicas do Canvas ainda requer inspeção manual porque o layout de forças pode variar. Em telas móveis, o Canvas reduz os rótulos em escala pequena e a lista de conexões permite seleção por teclado ou toque quando uma linha é difícil de alcançar.
 
 ## Contribuição, segurança e licença
 

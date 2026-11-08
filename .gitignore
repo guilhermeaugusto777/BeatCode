@@ -23,6 +23,8 @@ dist/
 build/
 npm-debug.log*
 .playwright-cli/
+playwright-report/
+test-results/
 
 # Sistema operacional
 .maestri/
