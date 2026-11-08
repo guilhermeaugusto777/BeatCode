@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import dynamic from "next/dynamic";
 import * as d3 from "d3-force";
+import ConnectionExplorer from "./ConnectionExplorer";
+import { connectionKey, endpointId, explainConnection } from "../lib/connectionExplanation.mjs";
 
 const ForceGraph2D = dynamic(() => import("react-force-graph-2d"), { ssr: false });
 
@@ -25,6 +27,7 @@ const normalizeSearchText = (value) =>
 export default function SpotifyConstellationGraph() {
   const fgRef = useRef(null);
   const graphContainerRef = useRef(null);
+  const connectionsRef = useRef(null);
   const imageCache = useRef({});
 
   const [graphData, setGraphData] = useState({ metadata: null, nodes: [], links: [] });
@@ -35,6 +38,7 @@ export default function SpotifyConstellationGraph() {
   const [searchQuery, setSearchQuery] = useState("");
   const [hoverNode, setHoverNode] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null);
+  const [selectedLinkKey, setSelectedLinkKey] = useState(null);
   const [loading, setLoading] = useState(false);
   const [graphError, setGraphError] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
@@ -77,6 +81,7 @@ export default function SpotifyConstellationGraph() {
     setGraphError(null);
     setGraphData({ metadata: null, nodes: [], links: [] });
     setSelectedNode(null);
+    setSelectedLinkKey(null);
     setHoverNode(null);
 
     const url = `${API_BASE_URL}/api/graph?time_range=${timeRange}&graph_mode=${graphMode}&limit=50&demo=${experience === "demo"}`;
@@ -109,6 +114,7 @@ export default function SpotifyConstellationGraph() {
         });
         setGraphData(data);
         setSelectedNode(null);
+        setSelectedLinkKey(null);
         setLoading(false);
       })
       .catch((err) => {
@@ -153,32 +159,56 @@ export default function SpotifyConstellationGraph() {
     return graphData.nodes.filter((node) => normalizeSearchText(node.name).includes(query));
   }, [graphData.nodes, searchQuery]);
 
+  const nodesById = useMemo(() => new Map(graphData.nodes.map((node) => [node.id, node])), [graphData.nodes]);
+  const selectedLink = useMemo(
+    () => filteredGraph.links.find((link) => connectionKey(link) === selectedLinkKey) || null,
+    [filteredGraph.links, selectedLinkKey]
+  );
+  const selectedExplanation = useMemo(
+    () => explainConnection(selectedLink, nodesById, graphMode),
+    [selectedLink, nodesById, graphMode]
+  );
+  const nodeConnections = useMemo(() => {
+    if (!selectedNode) return [];
+    return filteredGraph.links
+      .filter((link) => endpointId(link.source) === selectedNode.id || endpointId(link.target) === selectedNode.id)
+      .sort((a, b) => b.weight - a.weight);
+  }, [filteredGraph.links, selectedNode]);
+
   const activeNode = hoverNode || selectedNode;
+  const spotlightNode = selectedLink ? null : activeNode;
 
   const { highlightNodes, highlightLinks } = useMemo(() => {
     const hNodes = new Set();
     const hLinks = new Set();
-    if (!activeNode) return { highlightNodes: hNodes, highlightLinks: hLinks };
+    if (selectedLink) {
+      hNodes.add(endpointId(selectedLink.source));
+      hNodes.add(endpointId(selectedLink.target));
+      hLinks.add(selectedLink);
+      return { highlightNodes: hNodes, highlightLinks: hLinks };
+    }
+    if (!spotlightNode) return { highlightNodes: hNodes, highlightLinks: hLinks };
 
-    hNodes.add(activeNode.id);
+    hNodes.add(spotlightNode.id);
     filteredGraph.links.forEach((link) => {
       const sId = typeof link.source === "object" ? link.source.id : link.source;
       const tId = typeof link.target === "object" ? link.target.id : link.target;
-      if (sId === activeNode.id || tId === activeNode.id) {
+      if (sId === spotlightNode.id || tId === spotlightNode.id) {
         hNodes.add(sId);
         hNodes.add(tId);
         hLinks.add(link);
       }
     });
     return { highlightNodes: hNodes, highlightLinks: hLinks };
-  }, [activeNode, filteredGraph]);
+  }, [spotlightNode, selectedLink, filteredGraph]);
 
   const paintNode = useCallback(
     (node, ctx, globalScale) => {
       if (node.x === undefined || node.y === undefined) return;
 
-      const isHighlighted = !activeNode || highlightNodes.has(node.id);
-      const isFocused = activeNode && activeNode.id === node.id;
+      const isHighlighted = (!spotlightNode && !selectedLink) || highlightNodes.has(node.id);
+      const isFocused = selectedLink ? highlightNodes.has(node.id) : spotlightNode?.id === node.id;
+      const compactCanvas = graphSize.width < 640;
       const radius = node.val || 14;
 
       ctx.save();
@@ -211,7 +241,7 @@ export default function SpotifyConstellationGraph() {
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillStyle = node.color || "#1DB954";
-        ctx.fillText(`# ${node.name}`, node.x, node.y);
+        ctx.fillText(compactCanvas && !isFocused && globalScale < 2.2 ? "#" : `# ${node.name}`, node.x, node.y);
       } else {
         // Desenha nó circular para Artistas
         ctx.beginPath();
@@ -246,7 +276,7 @@ export default function SpotifyConstellationGraph() {
         ctx.strokeStyle = node.color || "#1DB954";
         ctx.stroke();
 
-        if (globalScale >= 1.1 || (activeNode && isHighlighted)) {
+        if (compactCanvas ? (isFocused || globalScale >= 2.2) : (globalScale >= 1.1 || ((spotlightNode || selectedLink) && isHighlighted))) {
           const fontSize = Math.max(11 / globalScale, 3.5);
           ctx.font = `600 ${fontSize}px Inter, system-ui, sans-serif`;
           ctx.textAlign = "center";
@@ -258,14 +288,24 @@ export default function SpotifyConstellationGraph() {
 
       ctx.restore();
     },
-    [activeNode, highlightNodes]
+    [spotlightNode, selectedLink, highlightNodes, graphSize.width]
   );
 
   const focusNode = (node) => {
+    setSelectedLinkKey(null);
     setSelectedNode((previous) => previous?.id === node.id ? null : node);
     if (Number.isFinite(node.x) && Number.isFinite(node.y)) {
       fgRef.current?.centerAt(node.x, node.y, 400);
-      fgRef.current?.zoom(2.1, 400);
+      fgRef.current?.zoom(graphSize.width < 640 ? 1.1 : 2.1, 400);
+    }
+  };
+
+  const selectLink = (link, fromCanvas = false) => {
+    setSelectedLinkKey(connectionKey(link));
+    setSelectedNode(nodesById.get(endpointId(link.source)) || null);
+    setHoverNode(null);
+    if (fromCanvas && window.matchMedia("(max-width: 1023px)").matches) {
+      requestAnimationFrame(() => connectionsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
     }
   };
 
@@ -287,6 +327,7 @@ export default function SpotifyConstellationGraph() {
     }
     setGraphData({ metadata: null, nodes: [], links: [] });
     setSelectedNode(null);
+    setSelectedLinkKey(null);
     setHoverNode(null);
     setGraphError(null);
     setExperience("welcome");
@@ -406,7 +447,7 @@ export default function SpotifyConstellationGraph() {
             max="0.65"
             step="0.01"
             value={minEdgeWeight}
-            onChange={(e) => setMinEdgeWeight(parseFloat(e.target.value))}
+            onChange={(e) => { setMinEdgeWeight(parseFloat(e.target.value)); setSelectedLinkKey(null); }}
             className="w-24 accent-[#1DB954] cursor-pointer"
           />
         </div>
@@ -461,17 +502,22 @@ export default function SpotifyConstellationGraph() {
             }}
             onNodeHover={(node) => setHoverNode(node || null)}
             onNodeClick={focusNode}
-            onBackgroundClick={() => setSelectedNode(null)}
+            onBackgroundClick={() => { setSelectedNode(null); setSelectedLinkKey(null); }}
+            onLinkClick={(link) => selectLink(link, true)}
+            linkHoverPrecision={graphSize.width < 640 ? 14 : 7}
             linkWidth={(link) =>
-              highlightLinks.has(link) ? link.weight * 4.5 : link.weight * 1.8
+              connectionKey(link) === selectedLinkKey ? Math.max(3.5, link.weight * 5) :
+                highlightLinks.has(link) ? link.weight * 4.5 : link.weight * 1.8
             }
             linkColor={(link) => {
+              if (connectionKey(link) === selectedLinkKey) return "rgba(52, 211, 153, 1)";
+              if (selectedLink) return "rgba(63, 63, 70, 0.06)";
               if (!activeNode) return "rgba(161, 161, 170, 0.22)";
               return highlightLinks.has(link)
                 ? "rgba(29, 185, 84, 0.88)"
                 : "rgba(63, 63, 70, 0.06)";
             }}
-            linkDirectionalParticles={(link) => (highlightLinks.has(link) ? 2 : 0)}
+            linkDirectionalParticles={(link) => (selectedLink ? (connectionKey(link) === selectedLinkKey ? 2 : 0) : (highlightLinks.has(link) ? 2 : 0))}
             linkDirectionalParticleWidth={3}
             cooldownTicks={130}
             onEngineStop={() => fgRef.current?.zoomToFit(300, 32)}
@@ -583,6 +629,18 @@ export default function SpotifyConstellationGraph() {
               </ul>
             )}
           </div>
+        )}
+
+        {graphData.nodes.length > 0 && !loading && !graphError && (
+          <ConnectionExplorer
+            sectionRef={connectionsRef}
+            focusedNode={selectedNode}
+            connections={nodeConnections}
+            selectedKey={selectedLinkKey}
+            explanation={selectedExplanation}
+            nodesById={nodesById}
+            onSelect={selectLink}
+          />
         )}
 
         {/* Inspector de Nó (Artista ou Gênero) */}
