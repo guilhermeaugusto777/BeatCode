@@ -35,7 +35,7 @@ Nunca envie `.env`, Client Secret, tokens, cookies de sessão, logs de autentica
 
 ### Testes de autenticação
 
-Os testes automatizados usam clientes Spotify simulados. Para um ensaio manual real, configure um aplicativo próprio no Spotify Developer Dashboard e cadastre exatamente `http://127.0.0.1:8000/auth/callback`; use duas contas consentidas em perfis de navegador separados. Confira `401` antes do login, isolamento A/B, rejeição de `state` ausente, alterado ou expirado, logout independente, renovação de token, respostas `429` e falhas de rede. Não registre tokens nem respostas completas do Spotify em capturas ou logs. Esse ensaio é opcional para contribuições comuns e não roda na CI.
+Os testes automatizados usam clientes Spotify simulados. Para um ensaio manual real, configure um aplicativo próprio no Spotify Developer Dashboard e cadastre exatamente `http://127.0.0.1:8000/auth/callback`; use duas contas consentidas em perfis de navegador separados. Confira `401` antes do login, isolamento A/B, rejeição de `state` ausente, alterado ou expirado, logout independente, renovação de token, respostas `429` e falhas de rede. Não registre tokens nem respostas completas do Spotify em capturas ou logs. Esse ensaio é opcional para contribuições comuns e não faz parte dos testes automatizados atuais.
 
 ## Escopo de um PR
 
