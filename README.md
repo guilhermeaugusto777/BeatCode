@@ -94,7 +94,7 @@ npm audit --prefix frontend --audit-level=moderate
 uvx pip-audit -r backend/requirements-dev.txt --progress-spinner off
 ```
 
-O equivalente macOS/Linux usa `backend/.venv/bin/python` dentro de `backend/`. Os testes de autenticação usam mocks; não precisam de conta Spotify. Os experimentos reproduzíveis e os comandos estão em [Validação do modelo](docs/validacao-do-modelo.md). O frontend ainda não possui teste automatizado de interação Canvas; verifique mudanças visuais em navegador.
+O equivalente macOS/Linux usa `backend/.venv/bin/python` dentro de `backend/`. Os testes de autenticação usam mocks; não precisam de conta Spotify. Os experimentos reproduzíveis e os comandos estão em [Validação do modelo](docs/validacao-do-modelo.md). O frontend ainda não possui teste automatizado de interação Canvas; verifique mudanças visuais em navegador. Em viewport móvel estreita, rótulos de nós de redes densas podem se sobrepor; a busca textual é o caminho mais legível para localizar um nó.
 
 ## Contribuição, segurança e licença
 

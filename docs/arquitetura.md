@@ -40,4 +40,4 @@ Os testes de autenticação usam mocks, sem credenciais de Spotify. Um ensaio re
 
 ## Leitura correta das métricas
 
-As comunidades, modularidade e o artista ponte são calculados no backend sobre a rede construída e podada. O controle de limiar no frontend oculta linhas **apenas na visualização**; os indicadores não são recalculados. A busca percorre todos os nós do payload, inclusive gêneros no modo bipartido. A comparação de métodos e as limitações científicas estão em [Validação do modelo](validacao-do-modelo.md).
+As comunidades, modularidade e o artista ponte são calculados no backend sobre a rede construída e podada. O controle de limiar no frontend oculta linhas **apenas na visualização**; os indicadores não são recalculados. A busca percorre todos os nós do payload, inclusive gêneros no modo bipartido. Em tela móvel estreita, rótulos do Canvas podem se sobrepor quando a rede é densa; a busca oferece um caminho textual para seleção, mas não elimina essa limitação visual. A comparação de métodos e as limitações científicas estão em [Validação do modelo](validacao-do-modelo.md).
