@@ -32,4 +32,12 @@ export default [
     files: ["tailwind.config.js"],
     languageOptions: { globals: { module: "readonly" } },
   },
+  {
+    files: ["e2e/**/*.{js,mjs}"],
+    languageOptions: { globals: { document: "readonly", innerWidth: "readonly" } },
+  },
+  {
+    files: ["playwright.config.mjs"],
+    languageOptions: { globals: { process: "readonly" } },
+  },
 ];
