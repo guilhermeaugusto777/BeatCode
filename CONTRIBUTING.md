@@ -8,6 +8,8 @@ Use as instruções de instalação do [README](README.md), a partir da raiz do 
 
 ## Verificação antes de enviar um PR
 
+A CI executa testes Python, lint, build e auditorias de dependências em cada PR e push para `main`. Ela não usa credenciais Spotify; os testes de autenticação dependem de clientes simulados. As dependências Python transitivas da CI estão fixadas em `backend/requirements-ci.lock`. Ao mudar `backend/requirements-dev.txt` ou `backend/requirements.txt`, atualize o lock com `uv pip compile --universal --python-version 3.11 -o backend/requirements-ci.lock backend/requirements-dev.txt` e revise o diff. Execute as verificações locais antes de enviar o PR; a CI não substitui os testes visuais do Canvas.
+
 No Windows PowerShell, com o ambiente criado conforme o README:
 
 ```powershell
