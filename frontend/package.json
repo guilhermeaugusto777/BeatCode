@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev -H 127.0.0.1 -p 3000",
     "build": "next build",
-    "lint": "eslint app components next.config.mjs postcss.config.mjs tailwind.config.js",
+    "lint": "eslint app components lib tests next.config.mjs postcss.config.mjs tailwind.config.js",
+    "test": "node --test tests/*.test.mjs",
     "start": "next start -H 127.0.0.1 -p 3000"
   },
   "dependencies": {
