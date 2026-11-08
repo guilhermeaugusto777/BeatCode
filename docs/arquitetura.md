@@ -17,7 +17,7 @@ flowchart LR
 
 | Local | Responsabilidade |
 | --- | --- |
-| [`frontend/app/`](../frontend/app/) e [`frontend/components/SpotifyConstellationGraph.jsx`](../frontend/components/SpotifyConstellationGraph.jsx) | Entrada com Spotify ou demo, busca em todos os nós recebidos, controles, Canvas 2D e painel de métricas. Usa Next.js 16, React 19 e `react-force-graph-2d`. |
+| [`frontend/app/`](../frontend/app/) e [`frontend/components/`](../frontend/components/) | Entrada com Spotify ou demo, busca em todos os nós recebidos, controles, Canvas 2D, painel de métricas e inspetor de conexões. Usa Next.js 16, React 19 e `react-force-graph-2d`. |
 | [`backend/main.py`](../backend/main.py) | Endpoints FastAPI, OAuth via Spotipy, isolamento de sessões, consulta ao Spotify, dataset demo e cálculo dos grafos. |
 | [`backend/genre_representation.py`](../backend/genre_representation.py) | Normalização e corpus de gêneros para o TF-IDF vigente. |
 | [`backend/experiments/`](../backend/experiments/) | Alternativas de gênero e coescuta e dados sintéticos. Não são acionadas por `/api/graph`. |
@@ -40,4 +40,4 @@ Os testes de autenticação usam mocks, sem credenciais de Spotify. Um ensaio re
 
 ## Leitura correta das métricas
 
-As comunidades, modularidade e o artista ponte são calculados no backend sobre a rede construída e podada. O controle de limiar no frontend oculta linhas **apenas na visualização**; os indicadores não são recalculados. A busca percorre todos os nós do payload, inclusive gêneros no modo bipartido. Em tela móvel estreita, rótulos do Canvas podem se sobrepor quando a rede é densa; a busca oferece um caminho textual para seleção, mas não elimina essa limitação visual. A comparação de métodos e as limitações científicas estão em [Validação do modelo](validacao-do-modelo.md).
+As comunidades, modularidade e o artista ponte são calculados no backend sobre a rede construída e podada. O controle de limiar no frontend oculta linhas **apenas na visualização**; os indicadores não são recalculados. A busca percorre todos os nós do payload, inclusive gêneros no modo bipartido. O inspetor lê o peso e os componentes enviados pela API; coeficientes são fixos e as contribuições reconstruídas são aproximadas devido ao arredondamento dos componentes. No bipartido, o painel usa a interpretação artista–gênero, sem aplicar os três componentes do grafo de artistas. Em tela móvel estreita, o Canvas reduz rótulos em escala pequena e a lista de conexões permite seleção acessível; redes densas ainda podem dificultar o toque em uma linha específica. A comparação de métodos e as limitações científicas estão em [Validação do modelo](validacao-do-modelo.md).
