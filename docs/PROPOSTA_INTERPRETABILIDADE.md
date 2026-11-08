@@ -8,7 +8,9 @@ No grafo **artista ↔ gênero**, a ligação indica um rótulo de gênero forne
 
 ## Primeira melhoria visual recomendada
 
-Ao selecionar uma **linha** entre artistas, abrir um painel compacto “Por que estão conectados?”. Mostrar os dois nomes, o peso final como “força da ligação calculada: 0,42/1” e três barras proporcionais à **contribuição ponderada** (`0,65g`, `0,25c`, `0,10t`), não aos componentes brutos. Assim o comprimento das barras soma aproximadamente o valor apresentado. Um texto curto por barra:
+Ao selecionar uma **linha** entre artistas, abrir um painel compacto “Por que estão conectados?”. Mostrar os dois nomes, o peso final como “força da ligação calculada: [peso]/1” e três barras proporcionais à **contribuição ponderada** (`0,65g`, `0,25c`, `0,10t`), não aos componentes brutos. Assim o comprimento das barras soma aproximadamente o valor apresentado. Um texto curto por barra:
+
+**Exemplo verificável do demo:** Caetano Veloso ↔ Gal Costa retorna `genre_similarity=1,0`, `direct_collaboration=0,5`, `co_listening=0,0` e peso final `0,775`. O inspetor mostraria “gêneros: `1,0 × 0,65 = 0,65`”, “colaboração: `0,5 × 0,25 = 0,125`”, “histórico recente: `0,0 × 0,10 = 0`” e “força calculada: `0,775`”. `0,65/0,25/0,10` são **coeficientes fixos do modelo**; `0,65/0,125/0` são as **contribuições deste par**. Nenhum deles deve ser apresentado como percentual de preferência pessoal. Como a API arredonda componentes a três casas e o peso a quatro, a soma reconstruída pode variar ligeiramente do peso exibido.
 
 - **Gêneros em comum ou relacionados**: mostrar `shared_genres` quando houver; quando só houver termos relacionados por TF-IDF, dizer “rótulos de gênero com termos em comum”. Não inventar gêneros compartilhados.
 - **Colaboração catalogada**: “Há uma faixa com ambos nos dados consultados” apenas quando o componente for positivo. A API ainda não envia nome nem ID da faixa que comprovou a colaboração; isso precisará de campo de evidência antes de mostrar exemplos.
@@ -17,6 +19,8 @@ Ao selecionar uma **linha** entre artistas, abrir um painel compacto “Por que 
 Mostrar uma nota pequena: “As ligações são inferências; uma playlist, álbum ou reprodução automática pode influenciar o histórico”. Se um componente for zero, exibir “sem sinal neste recorte”, não “não existe relação”. O arredondamento pode fazer a soma visual diferir por até cerca de `0,001`.
 
 O painel deve ser acessível por **clique/toque** e por uma lista textual de conexões do artista selecionado; Canvas sozinho não oferece foco de teclado nos links. Ao focar um artista pela lista, oferecer “ver conexões” com nomes, peso e botão para abrir a explicação. Em telas pequenas, usar folha inferior; em desktop, painel lateral que não cubra o grafo. A interação de hover pode servir de prévia, mas não pode ser o único caminho. Respeitar `prefers-reduced-motion` nas animações de foco e zoom.
+
+**Interação proposta para aprovação:** selecionar um artista abre uma lista de vizinhos atualmente visíveis, ordenada por peso. Selecionar um vizinho abre o inspetor acima, com opção de voltar ao artista. A lista informa quantas conexões foram ocultadas pelo limiar; os componentes são sempre os calculados na rede original. No modo bipartido, a mesma ação mostra “gênero catalogado pelo Spotify” e o peso definido pela posição do artista no ranking, sem reutilizar os três componentes do modo de artistas. Isso exige estado de seleção de aresta e testes de teclado/toque, mas nenhuma mudança matemática nem nova dependência.
 
 ## Ordem de entrega sugerida
 
