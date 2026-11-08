@@ -25,5 +25,7 @@ npm-debug.log*
 .playwright-cli/
 
 # Sistema operacional
+.maestri/
+.cache*
 .DS_Store
 Thumbs.db
