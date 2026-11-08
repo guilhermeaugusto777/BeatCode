@@ -18,4 +18,5 @@
 
 - Backend: em `backend/`, criar ambiente Python 3.11, instalar `requirements-dev.txt`, executar `python -m pytest -q` e iniciar com `uvicorn main:app --host 127.0.0.1 --port 8000 --reload`.
 - Frontend: em `frontend/`, usar `npm ci`, `npm run dev`, `npm run lint`, `npm run build` e `npm audit --audit-level=moderate`.
+- Navegação: com `backend/.venv` instalado e portas 8000/3000 livres, em `frontend/` executar `npx playwright install --only-shell chromium` e `npm run test:e2e` (Node 22+). Usa apenas o modo demo e inicia os dois servidores.
 - O frontend ainda não tem suíte automatizada de interação Canvas. Registre as verificações de navegador realmente executadas.
