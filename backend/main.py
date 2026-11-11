@@ -485,17 +485,17 @@ def compute_listening_metrics(
     recent_tracks: List[Dict[str, Any]] | None = None,
     saved_tracks: List[Dict[str, Any]] | None = None,
     selected_genres: Set[str] | List[str] | None = None,
+    time_range: str = "medium_term",
 ) -> Dict[str, Any]:
     """
-    Calcula métricas de escuta reais e deduplicadas para artistas e gêneros:
-    - Artistas: L_a >= 1 a partir de top_tracks, saved_tracks e recent_tracks
-      (deduplicando catálogo por track_id e somando eventos de recent_tracks,
-      ou usando artist['listening_count'] quando maior).
-    - Gêneros: L_g >= 1 deduplicado por faixa (cada faixa única contribui play_count
-      uma única vez mesmo se múltiplos artistas do gênero estiverem nela) somado às
-      escutas residuais dos artistas do gênero.
-    - Ranks: 1..N decrescente por listening_count com desempate determinístico por name ascendente.
-    - Ratios: L_i / L_max arredondado a 6 casas decimais.
+    Calcula métricas de escuta reais e transparentes com separação rigorosa entre:
+    - Biblioteca Salva (saved_tracks): saved_tracks_count (nunca soma em reproduções).
+    - Afinidade Spotify (top_tracks): top_tracks_count e affinity_score (afinidade, não contagem absoluta).
+    - Reproduções Observadas (recent_tracks e histórico verificado): observed_plays (int >= 0).
+    - L_i e Tipo de Métrica:
+        * Se observed_plays > 0: L_i = observed_plays, tipo 'observed_plays', label 'Reproduções Observadas'.
+        * Se observed_plays == 0: L_i = estimated_listening_index (sem contagens fictícias), tipo 'estimated_listening_index', label 'Índice Estimado de Escuta'.
+    - Deduplicação no modo bipartido: faixa única contribui reproduções observadas uma única vez por gênero.
     """
     if not artists:
         return {
@@ -504,9 +504,6 @@ def compute_listening_metrics(
             "max_artist_listening_count": 0,
             "max_genre_listening_count": None,
         }
-
-    cat_tracks: Dict[str, Dict[str, Any]] = {}
-    track_plays: Dict[str, int] = defaultdict(int)
 
     def extract_track(item: Any) -> Dict[str, Any] | None:
         if not isinstance(item, dict):
@@ -517,124 +514,235 @@ def compute_listening_metrics(
             return item
         return None
 
-    # 1. Catálogo deduplicado entre top_tracks e saved_tracks
-    for item in (top_tracks or []):
-        t = extract_track(item)
-        if t and t.get("id"):
-            t_id = t["id"]
-            cat_tracks[t_id] = t
-            p = int(t.get("play_count", 1) or 1)
-            track_plays[t_id] = max(track_plays[t_id], p)
+    n = len(artists)
 
+    # 1. Biblioteca Salva (saved_tracks_count) - REGRA ESTRITA: nunca soma em reproduções
+    artist_saved_tracks: Dict[str, Set[str]] = defaultdict(set)
+    saved_tracks_catalog: Dict[str, Dict[str, Any]] = {}
     for item in (saved_tracks or []):
         t = extract_track(item)
         if t and t.get("id"):
             t_id = t["id"]
-            p = int(t.get("play_count", 1) or 1)
-            if t_id not in cat_tracks:
-                cat_tracks[t_id] = t
-                track_plays[t_id] = p
-            else:
-                track_plays[t_id] = max(track_plays[t_id], p)
+            saved_tracks_catalog[t_id] = t
+            for a in t.get("artists", []):
+                if isinstance(a, dict) and a.get("id"):
+                    artist_saved_tracks[a["id"]].add(t_id)
 
-    # 2. Somando eventos de reprodução em recent_tracks
+    # 2. Afinidade Spotify (top_tracks_count) - REGRA ESTRITA: ranking e afinidade, não reproduções
+    artist_top_tracks: Dict[str, Set[str]] = defaultdict(set)
+    top_tracks_catalog: Dict[str, Dict[str, Any]] = {}
+    for item in (top_tracks or []):
+        t = extract_track(item)
+        if t and t.get("id"):
+            t_id = t["id"]
+            top_tracks_catalog[t_id] = t
+            for a in t.get("artists", []):
+                if isinstance(a, dict) and a.get("id"):
+                    artist_top_tracks[a["id"]].add(t_id)
+
+    # 3. Reprodução Observada (recent_tracks e eventos reais de reprodução)
+    recent_tracks_catalog: Dict[str, Dict[str, Any]] = {}
+    track_observed_plays: Dict[str, int] = defaultdict(int)
+    artist_track_observed_plays: Dict[str, int] = defaultdict(int)
+
     for item in (recent_tracks or []):
         t = extract_track(item)
         if t and t.get("id"):
             t_id = t["id"]
-            if t_id not in cat_tracks:
-                cat_tracks[t_id] = t
-            p = int(t.get("play_count", 1) or 1)
-            track_plays[t_id] += p
+            recent_tracks_catalog[t_id] = t
+            plays = int(item.get("play_count") or t.get("play_count") or 1)
+            track_observed_plays[t_id] += plays
+            for a in t.get("artists", []):
+                if isinstance(a, dict) and a.get("id"):
+                    artist_track_observed_plays[a["id"]] += plays
 
-    # 3. Mapear reproduções de faixas para cada artista
-    artist_track_plays: Dict[str, int] = defaultdict(int)
-    for t_id, t in cat_tracks.items():
-        plays = track_plays.get(t_id, 1)
-        for a in t.get("artists", []):
-            if isinstance(a, dict) and a.get("id"):
-                artist_track_plays[a["id"]] += plays
-
-    # 4. Calcular listening_count por artista
-    artist_counts: Dict[str, int] = {}
+    # 4. Mapear métricas por artista
+    artist_counts: Dict[str, int | float] = {}
+    artist_observed: Dict[str, int] = {}
+    artist_saved_counts: Dict[str, int] = {}
+    artist_top_counts: Dict[str, int] = {}
+    artist_metric_types: Dict[str, str] = {}
+    artist_metric_labels: Dict[str, str] = {}
     artist_sources: Dict[str, str] = {}
-    for a in artists:
+    artist_periods: Dict[str, str] = {}
+
+    for rank_idx, a in enumerate(artists):
         a_id = a["id"]
-        from_tracks = artist_track_plays.get(a_id, 0)
-        explicit_count = a.get("listening_count")
-        if explicit_count is not None and int(explicit_count) > from_tracks:
-            count = max(1, int(explicit_count))
-            source = "explicit_count"
+        from_recent = artist_track_observed_plays.get(a_id, 0)
+        explicit_obs = a.get("observed_plays")
+        if explicit_obs is None and a.get("listening_count") is not None:
+            explicit_obs = a.get("listening_count")
+
+        if explicit_obs is not None:
+            total_obs = max(int(explicit_obs), from_recent)
+            has_explicit = int(explicit_obs) > from_recent
         else:
-            count = max(1, from_tracks)
-            source = "user_tracks"
+            total_obs = from_recent
+            has_explicit = False
+
+        artist_observed[a_id] = total_obs
+
+        s_count = len(artist_saved_tracks.get(a_id, set()))
+        if a.get("saved_tracks_count") is not None:
+            s_count = max(s_count, int(a["saved_tracks_count"]))
+        artist_saved_counts[a_id] = s_count
+
+        t_count = len(artist_top_tracks.get(a_id, set()))
+        if a.get("top_tracks_count") is not None:
+            t_count = max(t_count, int(a["top_tracks_count"]))
+        artist_top_counts[a_id] = t_count
+
+        if a.get("affinity_score") is not None:
+            aff_score = float(a["affinity_score"])
+        else:
+            aff_score = round(1.0 - (rank_idx / max(n, 1)) * 0.75, 3)
+
+        if total_obs > 0:
+            count = total_obs
+            m_type = "observed_plays"
+            m_label = "Reproduções Observadas"
+            m_source = "verified_playback_history" if has_explicit else "recent_playback_history"
+            m_period = "historico_observado"
+        else:
+            # Zero reproduções observadas: índice estimado transparente sem inventar números
+            est_index = round(70.0 * aff_score + 30.0 * min(1.0, t_count / 3.0), 2)
+            count = est_index
+            m_type = "estimated_listening_index"
+            m_label = "Índice Estimado de Escuta"
+            m_source = "spotify_top_affinity"
+            m_period = time_range
+
         artist_counts[a_id] = count
-        artist_sources[a_id] = source
+        artist_metric_types[a_id] = m_type
+        artist_metric_labels[a_id] = m_label
+        artist_sources[a_id] = m_source
+        artist_periods[a_id] = m_period
 
     max_artist_listening_count = max(artist_counts.values()) if artist_counts else 1
 
     sorted_artists = sorted(
         artists,
-        key=lambda a: (-artist_counts.get(a["id"], 1), a.get("name", "")),
+        key=lambda a: (-artist_counts.get(a["id"], 0), a.get("name", "")),
     )
     artist_metrics = {}
     for rank_idx, a in enumerate(sorted_artists):
         a_id = a["id"]
         count = artist_counts[a_id]
-        ratio = round(count / max(max_artist_listening_count, 1), 6)
+        ratio = round(count / max(max_artist_listening_count, 1e-6), 6)
         artist_metrics[a_id] = {
             "listening_count": count,
+            "observed_plays": artist_observed[a_id],
+            "saved_tracks_count": artist_saved_counts[a_id],
+            "top_tracks_count": artist_top_counts[a_id],
+            "listening_metric_type": artist_metric_types[a_id],
+            "listening_metric_label": artist_metric_labels[a_id],
+            "listening_source": artist_sources[a_id],
+            "listening_period": artist_periods[a_id],
             "listening_rank": rank_idx + 1,
             "listening_ratio": ratio,
-            "listening_source": artist_sources[a_id],
         }
 
-    # 5. Calcular listening_count por gênero no modo bipartido
+    # 5. Mapear métricas por gênero no modo bipartido
     genre_metrics = {}
     max_genre_listening_count = None
 
     if selected_genres is not None:
         artist_genres_map = {a["id"]: set(get_artist_genres(a)) for a in artists}
         residual_plays = {
-            a["id"]: max(0, artist_counts[a["id"]] - artist_track_plays.get(a["id"], 0))
+            a["id"]: max(0, artist_observed[a["id"]] - artist_track_observed_plays.get(a["id"], 0))
             for a in artists
         }
 
-        genre_counts: Dict[str, int] = {}
+        genre_counts: Dict[str, int | float] = {}
+        genre_observed: Dict[str, int] = {}
+        genre_saved_counts: Dict[str, int] = {}
+        genre_top_counts: Dict[str, int] = {}
+        genre_metric_types: Dict[str, str] = {}
+        genre_metric_labels: Dict[str, str] = {}
+        genre_sources: Dict[str, str] = {}
+        genre_periods: Dict[str, str] = {}
+
         for g in selected_genres:
             artists_in_g = {
                 a["id"] for a in artists if g in artist_genres_map.get(a["id"], set())
             }
 
-            # Faixas únicas cujos artistas possuem o gênero g (contadas uma única vez)
-            genre_track_sum = 0
-            for t_id, t in cat_tracks.items():
+            # Faixas únicas observadas em recent_tracks cujos artistas possuem o gênero g (deduplicadas por track_id)
+            genre_track_observed_sum = 0
+            for t_id, t in recent_tracks_catalog.items():
                 track_artist_ids = {
                     a["id"] for a in t.get("artists", [])
                     if isinstance(a, dict) and a.get("id")
                 }
                 if track_artist_ids.intersection(artists_in_g):
-                    genre_track_sum += track_plays.get(t_id, 1)
+                    genre_track_observed_sum += track_observed_plays.get(t_id, 1)
 
             # Escutas residuais dos artistas do gênero g
             genre_residual_sum = sum(residual_plays.get(a_id, 0) for a_id in artists_in_g)
-            total_genre_plays = max(1, genre_track_sum + genre_residual_sum)
-            genre_counts[g] = total_genre_plays
+            total_genre_observed = genre_track_observed_sum + genre_residual_sum
+            genre_observed[g] = total_genre_observed
+
+            # Faixas únicas em saved_tracks para o gênero g
+            genre_saved_tracks = {
+                t_id for t_id, t in saved_tracks_catalog.items()
+                if any((isinstance(a, dict) and a.get("id") in artists_in_g) for a in t.get("artists", []))
+            }
+            genre_saved_counts[g] = len(genre_saved_tracks)
+
+            # Faixas únicas em top_tracks para o gênero g
+            genre_top_tracks = {
+                t_id for t_id, t in top_tracks_catalog.items()
+                if any((isinstance(a, dict) and a.get("id") in artists_in_g) for a in t.get("artists", []))
+            }
+            genre_top_counts[g] = len(genre_top_tracks)
+
+            if total_genre_observed > 0:
+                count = total_genre_observed
+                m_type = "observed_plays"
+                m_label = "Reproduções Observadas"
+                m_source = "genre_tracks_dedup"
+                m_period = "historico_observado"
+            else:
+                if artists_in_g:
+                    avg_aff = sum(
+                        round(1.0 - (i / max(n, 1)) * 0.75, 3)
+                        for i, a in enumerate(artists) if a["id"] in artists_in_g
+                    ) / len(artists_in_g)
+                else:
+                    avg_aff = 0.5
+                est_index = round(70.0 * avg_aff + 30.0 * min(1.0, len(genre_top_tracks) / 3.0), 2)
+                count = est_index
+                m_type = "estimated_listening_index"
+                m_label = "Índice Estimado de Escuta"
+                m_source = "spotify_top_affinity"
+                m_period = time_range
+
+            genre_counts[g] = count
+            genre_metric_types[g] = m_type
+            genre_metric_labels[g] = m_label
+            genre_sources[g] = m_source
+            genre_periods[g] = m_period
 
         max_genre_listening_count = max(genre_counts.values()) if genre_counts else 1
 
         sorted_genres = sorted(
             list(selected_genres),
-            key=lambda g: (-genre_counts.get(g, 1), g),
+            key=lambda g: (-genre_counts.get(g, 0), g),
         )
         for rank_idx, g in enumerate(sorted_genres):
             count = genre_counts[g]
-            ratio = round(count / max(max_genre_listening_count, 1), 6)
+            ratio = round(count / max(max_genre_listening_count, 1e-6), 6)
             genre_metrics[g] = {
                 "listening_count": count,
+                "observed_plays": genre_observed[g],
+                "saved_tracks_count": genre_saved_counts[g],
+                "top_tracks_count": genre_top_counts[g],
+                "listening_metric_type": genre_metric_types[g],
+                "listening_metric_label": genre_metric_labels[g],
+                "listening_source": genre_sources[g],
+                "listening_period": genre_periods[g],
                 "listening_rank": rank_idx + 1,
                 "listening_ratio": ratio,
-                "listening_source": "genre_tracks_dedup",
             }
 
     return {
@@ -668,6 +776,7 @@ def compute_unipartite_artist_graph(
         top_tracks=top_tracks,
         recent_tracks=recent_tracks,
         saved_tracks=saved_tracks,
+        time_range=time_range,
     )
 
     artist_idx = {a["id"]: i for i, a in enumerate(artists)}
@@ -803,9 +912,15 @@ def compute_unipartite_artist_graph(
             "global_popularity": pop,
             "val": node_size,
             "listening_count": l_count,
+            "observed_plays": m.get("observed_plays", 0),
+            "saved_tracks_count": m.get("saved_tracks_count", 0),
+            "top_tracks_count": m.get("top_tracks_count", 0),
+            "listening_metric_type": m.get("listening_metric_type", "observed_plays"),
+            "listening_metric_label": m.get("listening_metric_label", "Reproduções Observadas"),
+            "listening_source": m.get("listening_source", "recent_playback_history"),
+            "listening_period": m.get("listening_period", "historico_observado"),
             "listening_rank": l_rank,
             "listening_ratio": l_ratio,
-            "listening_source": l_source,
             "cluster_id": c_id,
             "color": color,
             "image_url": image_url,
@@ -880,6 +995,7 @@ def compute_bipartite_artist_genre_graph(
         recent_tracks=recent_tracks or [],
         saved_tracks=saved_tracks,
         selected_genres=selected_genres,
+        time_range=time_range,
     )
 
     B = nx.Graph()
@@ -976,9 +1092,15 @@ def compute_bipartite_artist_genre_graph(
             "global_popularity": pop,
             "val": node_size,
             "listening_count": l_count,
+            "observed_plays": m.get("observed_plays", 0),
+            "saved_tracks_count": m.get("saved_tracks_count", 0),
+            "top_tracks_count": m.get("top_tracks_count", 0),
+            "listening_metric_type": m.get("listening_metric_type", "observed_plays"),
+            "listening_metric_label": m.get("listening_metric_label", "Reproduções Observadas"),
+            "listening_source": m.get("listening_source", "recent_playback_history"),
+            "listening_period": m.get("listening_period", "historico_observado"),
             "listening_rank": l_rank,
             "listening_ratio": l_ratio,
-            "listening_source": l_source,
             "cluster_id": c_id,
             "color": color,
             "image_url": image_url,
@@ -1015,9 +1137,15 @@ def compute_bipartite_artist_genre_graph(
             "global_popularity": connected_count * 10,
             "val": genre_size,
             "listening_count": g_listening_count,
+            "observed_plays": g_m.get("observed_plays", 0),
+            "saved_tracks_count": g_m.get("saved_tracks_count", 0),
+            "top_tracks_count": g_m.get("top_tracks_count", 0),
+            "listening_metric_type": g_m.get("listening_metric_type", "observed_plays"),
+            "listening_metric_label": g_m.get("listening_metric_label", "Reproduções Observadas"),
+            "listening_source": g_listening_source,
+            "listening_period": g_m.get("listening_period", "historico_observado"),
             "listening_rank": g_listening_rank,
             "listening_ratio": g_listening_ratio,
-            "listening_source": g_listening_source,
             "cluster_id": c_id,
             "color": color,
             "image_url": None,
@@ -1065,32 +1193,32 @@ def get_demo_dataset() -> Dict[str, Any]:
     imediatamente, mesmo antes de configurar as chaves da API do Spotify.
     """
     artists = [
-        {"id": "a1", "name": "Radiohead", "popularity": 84, "genres": ["alternative rock", "art rock", "melancholia", "oxford indie"], "images": [], "listening_count": 1000},
-        {"id": "a2", "name": "The Smile", "popularity": 68, "genres": ["art rock", "alternative rock", "indie rock"], "images": [], "listening_count": 350},
-        {"id": "a3", "name": "Arcade Fire", "popularity": 74, "genres": ["indie rock", "modern rock", "art pop", "canadian indie"], "images": [], "listening_count": 620},
-        {"id": "a4", "name": "Tame Impala", "popularity": 86, "genres": ["australian psych", "modern rock", "neo-psychedelic", "indie pop"], "images": [], "listening_count": 750},
-        {"id": "a5", "name": "MGMT", "popularity": 79, "genres": ["indie pop", "modern rock", "neo-psychedelic"], "images": [], "listening_count": 480},
-        {"id": "a6", "name": "Beach House", "popularity": 77, "genres": ["dream pop", "indie pop", "shoegaze", "art pop"], "images": [], "listening_count": 520},
-        {"id": "a7", "name": "Slowdive", "popularity": 73, "genres": ["shoegaze", "dream pop", "alternative rock"], "images": [], "listening_count": 410},
-        {"id": "a8", "name": "Cocteau Twins", "popularity": 72, "genres": ["dream pop", "shoegaze", "ethereal wave", "art pop"], "images": [], "listening_count": 390},
-        {"id": "a9", "name": "Milton Nascimento", "popularity": 75, "genres": ["mpb", "bossa nova", "brazilian jazz", "clube da esquina"], "images": [], "listening_count": 500},
-        {"id": "a10", "name": "Lô Borges", "popularity": 67, "genres": ["mpb", "clube da esquina", "brazilian rock"], "images": [], "listening_count": 280},
-        {"id": "a11", "name": "Caetano Veloso", "popularity": 78, "genres": ["mpb", "bossa nova", "tropicalia"], "images": [], "listening_count": 460},
-        {"id": "a12", "name": "Gilberto Gil", "popularity": 76, "genres": ["mpb", "tropicalia", "samba", "bossa nova"], "images": [], "listening_count": 430},
-        {"id": "a13", "name": "Gal Costa", "popularity": 75, "genres": ["mpb", "tropicalia", "bossa nova"], "images": [], "listening_count": 400},
-        {"id": "a14", "name": "Jorge Ben Jor", "popularity": 79, "genres": ["mpb", "samba rock", "samba", "tropicalia"], "images": [], "listening_count": 470},
-        {"id": "a15", "name": "Tim Maia", "popularity": 80, "genres": ["mpb", "brazilian soul", "samba rock", "brazilian boogie"], "images": [], "listening_count": 490},
-        {"id": "a16", "name": "Kendrick Lamar", "popularity": 94, "genres": ["conscious hip hop", "hip hop", "west coast rap", "rap"], "images": [], "listening_count": 1500},
-        {"id": "a17", "name": "Tyler, The Creator", "popularity": 90, "genres": ["hip hop", "rap", "alternative hip hop", "neo soul"], "images": [], "listening_count": 920},
-        {"id": "a18", "name": "Frank Ocean", "popularity": 89, "genres": ["neo soul", "alternative r&b", "hip hop", "art pop"], "images": [], "listening_count": 880},
-        {"id": "a19", "name": "SZA", "popularity": 93, "genres": ["alternative r&b", "r&b", "neo soul"], "images": [], "listening_count": 820},
-        {"id": "a20", "name": "MF DOOM", "popularity": 81, "genres": ["alternative hip hop", "conscious hip hop", "hip hop", "east coast hip hop"], "images": [], "listening_count": 640},
-        {"id": "a21", "name": "Madlib", "popularity": 70, "genres": ["alternative hip hop", "instrumental hip hop", "jazz rap"], "images": [], "listening_count": 310},
-        {"id": "a22", "name": "Nujabes", "popularity": 76, "genres": ["jazz rap", "instrumental hip hop", "chillhop"], "images": [], "listening_count": 360},
-        {"id": "a23", "name": "Daft Punk", "popularity": 87, "genres": ["electro", "filter house", "french house", "synthpop"], "images": [], "listening_count": 710},
-        {"id": "a24", "name": "Justice", "popularity": 75, "genres": ["electro house", "filter house", "french house", "indietronica"], "images": [], "listening_count": 330},
-        {"id": "a25", "name": "LCD Soundsystem", "popularity": 74, "genres": ["alternative dance", "dance-punk", "indietronica", "modern rock", "art rock"], "images": [], "listening_count": 380},
-        {"id": "a26", "name": "Gorillaz", "popularity": 86, "genres": ["alternative hip hop", "modern rock", "art pop", "indietronica"], "images": [], "listening_count": 670},
+        {"id": "a1", "name": "Radiohead", "popularity": 84, "genres": ["alternative rock", "art rock", "melancholia", "oxford indie"], "images": [], "observed_plays": 1000, "listening_count": 1000},
+        {"id": "a2", "name": "The Smile", "popularity": 68, "genres": ["art rock", "alternative rock", "indie rock"], "images": [], "observed_plays": 350, "listening_count": 350},
+        {"id": "a3", "name": "Arcade Fire", "popularity": 74, "genres": ["indie rock", "modern rock", "art pop", "canadian indie"], "images": [], "observed_plays": 620, "listening_count": 620},
+        {"id": "a4", "name": "Tame Impala", "popularity": 86, "genres": ["australian psych", "modern rock", "neo-psychedelic", "indie pop"], "images": [], "observed_plays": 750, "listening_count": 750},
+        {"id": "a5", "name": "MGMT", "popularity": 79, "genres": ["indie pop", "modern rock", "neo-psychedelic"], "images": [], "observed_plays": 480, "listening_count": 480},
+        {"id": "a6", "name": "Beach House", "popularity": 77, "genres": ["dream pop", "indie pop", "shoegaze", "art pop"], "images": [], "observed_plays": 520, "listening_count": 520},
+        {"id": "a7", "name": "Slowdive", "popularity": 73, "genres": ["shoegaze", "dream pop", "alternative rock"], "images": [], "observed_plays": 410, "listening_count": 410},
+        {"id": "a8", "name": "Cocteau Twins", "popularity": 72, "genres": ["dream pop", "shoegaze", "ethereal wave", "art pop"], "images": [], "observed_plays": 390, "listening_count": 390},
+        {"id": "a9", "name": "Milton Nascimento", "popularity": 75, "genres": ["mpb", "bossa nova", "brazilian jazz", "clube da esquina"], "images": [], "observed_plays": 500, "listening_count": 500},
+        {"id": "a10", "name": "Lô Borges", "popularity": 67, "genres": ["mpb", "clube da esquina", "brazilian rock"], "images": [], "observed_plays": 280, "listening_count": 280},
+        {"id": "a11", "name": "Caetano Veloso", "popularity": 78, "genres": ["mpb", "bossa nova", "tropicalia"], "images": [], "observed_plays": 460, "listening_count": 460},
+        {"id": "a12", "name": "Gilberto Gil", "popularity": 76, "genres": ["mpb", "tropicalia", "samba", "bossa nova"], "images": [], "observed_plays": 430, "listening_count": 430},
+        {"id": "a13", "name": "Gal Costa", "popularity": 75, "genres": ["mpb", "tropicalia", "bossa nova"], "images": [], "observed_plays": 400, "listening_count": 400},
+        {"id": "a14", "name": "Jorge Ben Jor", "popularity": 79, "genres": ["mpb", "samba rock", "samba", "tropicalia"], "images": [], "observed_plays": 470, "listening_count": 470},
+        {"id": "a15", "name": "Tim Maia", "popularity": 80, "genres": ["mpb", "brazilian soul", "samba rock", "brazilian boogie"], "images": [], "observed_plays": 490, "listening_count": 490},
+        {"id": "a16", "name": "Kendrick Lamar", "popularity": 94, "genres": ["conscious hip hop", "hip hop", "west coast rap", "rap"], "images": [], "observed_plays": 1500, "listening_count": 1500},
+        {"id": "a17", "name": "Tyler, The Creator", "popularity": 90, "genres": ["hip hop", "rap", "alternative hip hop", "neo soul"], "images": [], "observed_plays": 920, "listening_count": 920},
+        {"id": "a18", "name": "Frank Ocean", "popularity": 89, "genres": ["neo soul", "alternative r&b", "hip hop", "art pop"], "images": [], "observed_plays": 880, "listening_count": 880},
+        {"id": "a19", "name": "SZA", "popularity": 93, "genres": ["alternative r&b", "r&b", "neo soul"], "images": [], "observed_plays": 820, "listening_count": 820},
+        {"id": "a20", "name": "MF DOOM", "popularity": 81, "genres": ["alternative hip hop", "conscious hip hop", "hip hop", "east coast hip hop"], "images": [], "observed_plays": 640, "listening_count": 640},
+        {"id": "a21", "name": "Madlib", "popularity": 70, "genres": ["alternative hip hop", "instrumental hip hop", "jazz rap"], "images": [], "observed_plays": 310, "listening_count": 310},
+        {"id": "a22", "name": "Nujabes", "popularity": 76, "genres": ["jazz rap", "instrumental hip hop", "chillhop"], "images": [], "observed_plays": 360, "listening_count": 360},
+        {"id": "a23", "name": "Daft Punk", "popularity": 87, "genres": ["electro", "filter house", "french house", "synthpop"], "images": [], "observed_plays": 710, "listening_count": 710},
+        {"id": "a24", "name": "Justice", "popularity": 75, "genres": ["electro house", "filter house", "french house", "indietronica"], "images": [], "observed_plays": 330, "listening_count": 330},
+        {"id": "a25", "name": "LCD Soundsystem", "popularity": 74, "genres": ["alternative dance", "dance-punk", "indietronica", "modern rock", "art rock"], "images": [], "observed_plays": 380, "listening_count": 380},
+        {"id": "a26", "name": "Gorillaz", "popularity": 86, "genres": ["alternative hip hop", "modern rock", "art pop", "indietronica"], "images": [], "observed_plays": 670, "listening_count": 670},
     ]
 
     tracks = [
@@ -1102,7 +1230,20 @@ def get_demo_dataset() -> Dict[str, Any]:
         {"id": "t6", "name": "Empire Ants", "artists": [{"id": "a26"}, {"id": "a6"}], "album": {"images": []}, "play_count": 190},
         {"id": "t7", "name": "Panis et Circenses", "artists": [{"id": "a11"}, {"id": "a12"}, {"id": "a13"}], "album": {"images": []}, "play_count": 160},
     ]
-    return {"artists": artists, "top_tracks": tracks, "recent_tracks": [], "saved_tracks": []}
+
+    recent_tracks = [
+        {"track": {"id": "t2", "name": "Clube da Esquina Nº 2", "artists": [{"id": "a9"}, {"id": "a10"}], "album": {"images": []}}, "play_count": 180, "played_at": "2026-11-10T12:00:00Z"},
+    ]
+
+    saved_tracks = [
+        {"track": {"id": "s1", "name": "Paranoid Android", "artists": [{"id": "a1"}], "album": {"images": []}}},
+        {"track": {"id": "s2", "name": "Let It Happen", "artists": [{"id": "a4"}], "album": {"images": []}}},
+        {"track": {"id": "s3", "name": "Travessia", "artists": [{"id": "a9"}], "album": {"images": []}}},
+        {"track": {"id": "s4", "name": "O Trem Azul", "artists": [{"id": "a10"}], "album": {"images": []}}},
+        {"track": {"id": "s5", "name": "Alright", "artists": [{"id": "a16"}], "album": {"images": []}}},
+    ]
+
+    return {"artists": artists, "top_tracks": tracks, "recent_tracks": recent_tracks, "saved_tracks": saved_tracks}
 
 
 @app.get("/api/graph")

@@ -112,10 +112,30 @@ export function computeListeningProportionalDimensions(nodes = [], options = {})
     const R_max = D_max / 2.0;
 
     const items = group.map((node) => {
-      const rawL = node.listening_count ?? node.play_count;
+      const rawL = node.listening_count ?? node.observed_plays ?? node.play_count;
       const isValid = rawL !== null && rawL !== undefined && Number.isFinite(Number(rawL)) && Number(rawL) > 0;
       const listeningCount = isValid ? Number(rawL) : 0;
       const name = sanitizeNodeName(node.name);
+
+      const observed_plays = Number.isFinite(Number(node.observed_plays)) && Number(node.observed_plays) >= 0
+        ? Number(node.observed_plays)
+        : (node.observed_plays ?? null);
+
+      const saved_tracks_count = Number.isFinite(Number(node.saved_tracks_count)) && Number(node.saved_tracks_count) >= 0
+        ? Number(node.saved_tracks_count)
+        : (node.saved_tracks_count ?? null);
+
+      const rawTop = node.top_tracks_count ?? (Array.isArray(node.top_tracks) ? node.top_tracks.length : null);
+      const top_tracks_count = Number.isFinite(Number(rawTop)) && Number(rawTop) >= 0
+        ? Number(rawTop)
+        : (rawTop ?? null);
+
+      const isObserved = node.observed_plays !== undefined && node.observed_plays !== null;
+      const listening_metric_type = node.listening_metric_type || (isObserved ? "observed_plays" : "estimated_listening");
+      const listening_metric_label = node.listening_metric_label || (isObserved ? "Reproduções Observadas" : "Índice de Escuta");
+      const listening_source = node.listening_source || "spotify";
+      const listening_period = node.listening_period || options.timeRange || options.listeningPeriod || null;
+
       return {
         node,
         id: node.id,
@@ -123,7 +143,14 @@ export function computeListeningProportionalDimensions(nodes = [], options = {})
         name,
         nodeType: node.node_type === "genre" ? "genre" : "artist",
         listeningCount,
-        hasValidListening: isValid
+        hasValidListening: isValid,
+        observed_plays,
+        saved_tracks_count,
+        top_tracks_count,
+        listening_metric_type,
+        listening_metric_label,
+        listening_source,
+        listening_period
       };
     });
 
@@ -178,7 +205,21 @@ export function computeListeningProportionalDimensions(nodes = [], options = {})
         dimension,
         radius,
         hitRadius,
-        isFallbackListening
+        isFallbackListening,
+        observed_plays: item.observed_plays,
+        saved_tracks_count: item.saved_tracks_count,
+        top_tracks_count: item.top_tracks_count,
+        listening_metric_type: item.listening_metric_type,
+        listening_metric_label: item.listening_metric_label,
+        listening_source: item.listening_source,
+        listening_period: item.listening_period,
+        observedPlays: item.observed_plays,
+        savedTracksCount: item.saved_tracks_count,
+        topTracksCount: item.top_tracks_count,
+        listeningMetricType: item.listening_metric_type,
+        listeningMetricLabel: item.listening_metric_label,
+        listeningSource: item.listening_source,
+        listeningPeriod: item.listening_period
       };
 
       // Enable dual destructuring [id, res] and direct property access
@@ -195,6 +236,13 @@ export function computeListeningProportionalDimensions(nodes = [], options = {})
         item.node.proportionalRadius = radius;
         item.node.hitRadius = hitRadius;
         item.node.isFallbackListening = isFallbackListening;
+        item.node.observed_plays = item.observed_plays;
+        item.node.saved_tracks_count = item.saved_tracks_count;
+        item.node.top_tracks_count = item.top_tracks_count;
+        item.node.listening_metric_type = item.listening_metric_type;
+        item.node.listening_metric_label = item.listening_metric_label;
+        item.node.listening_source = item.listening_source;
+        item.node.listening_period = item.listening_period;
       }
 
       results.push(res);
@@ -305,9 +353,28 @@ export function computePlanetVisualProps(node = {}, metadata = {}, graphMode = "
   const D_max = nodeType === "genre" ? MAX_GENRE_DIMENSION : MAX_ARTIST_DIMENSION;
   const R_max = D_max / 2.0;
 
-  const rawL = node?.listening_count ?? node?.play_count;
+  const rawL = node?.listening_count ?? node?.observed_plays ?? node?.play_count;
   const hasListeningCount = rawL !== null && rawL !== undefined && Number.isFinite(Number(rawL)) && Number(rawL) > 0;
   const hasPrecalculated = Number.isFinite(node?.proportionalRadius) && node.proportionalRadius > 0;
+
+  const observed_plays = Number.isFinite(Number(node?.observed_plays)) && Number(node?.observed_plays) >= 0
+    ? Number(node?.observed_plays)
+    : (node?.observed_plays ?? null);
+
+  const saved_tracks_count = Number.isFinite(Number(node?.saved_tracks_count)) && Number(node?.saved_tracks_count) >= 0
+    ? Number(node?.saved_tracks_count)
+    : (node?.saved_tracks_count ?? null);
+
+  const rawTop = node?.top_tracks_count ?? (Array.isArray(node?.top_tracks) ? node?.top_tracks.length : null);
+  const top_tracks_count = Number.isFinite(Number(rawTop)) && Number(rawTop) >= 0
+    ? Number(rawTop)
+    : (rawTop ?? null);
+
+  const isObserved = node?.observed_plays !== undefined && node?.observed_plays !== null;
+  const listening_metric_type = node?.listening_metric_type || (isObserved ? "observed_plays" : "estimated_listening");
+  const listening_metric_label = node?.listening_metric_label || (isObserved ? "Reproduções Observadas" : "Índice de Escuta");
+  const listening_source = node?.listening_source || "spotify";
+  const listening_period = node?.listening_period || metadata?.time_range || metadata?.timeRange || null;
 
   let listeningCount = 0;
   let listeningRank = null;
@@ -437,6 +504,20 @@ export function computePlanetVisualProps(node = {}, metadata = {}, graphMode = "
     listeningRank,
     listeningRatio,
     isFallbackListening,
+    observed_plays,
+    saved_tracks_count,
+    top_tracks_count,
+    listening_metric_type,
+    listening_metric_label,
+    listening_source,
+    listening_period,
+    observedPlays: observed_plays,
+    savedTracksCount: saved_tracks_count,
+    topTracksCount: top_tracks_count,
+    listeningMetricType: listening_metric_type,
+    listeningMetricLabel: listening_metric_label,
+    listeningSource: listening_source,
+    listeningPeriod: listening_period,
     massIndex: Number(M.toFixed(4)),
     radiationIndex: Number(radiationIndex.toFixed(4)),
     haloRadius,
@@ -1057,12 +1138,73 @@ export function buildNodeProvenanceProfile(node = {}, graphMode = "artists") {
   const nodeId = node.id || "";
   const nodeType = node.node_type === "genre" ? "genre" : "artist";
 
-  const rawL = node.listening_count ?? node.play_count;
+  const rawL = node.listening_count ?? node.observed_plays ?? node.play_count;
   const listeningCount = Number.isFinite(Number(rawL)) ? Number(rawL) : null;
+
+  const rawObserved = node.observed_plays;
+  const observedPlays = Number.isFinite(Number(rawObserved)) && Number(rawObserved) >= 0
+    ? Number(rawObserved)
+    : (rawObserved ?? null);
+
+  const affinityRank = Number.isFinite(Number(node.affinity_rank)) && Number(node.affinity_rank) > 0
+    ? Number(node.affinity_rank)
+    : (node.affinity_rank ?? null);
+
+  const rawSaved = node.saved_tracks_count;
+  const savedTracksCount = Number.isFinite(Number(rawSaved)) && Number(rawSaved) >= 0
+    ? Number(rawSaved)
+    : (rawSaved ?? null);
+
+  const rawTopCount = node.top_tracks_count ?? (Array.isArray(node.top_tracks) ? node.top_tracks.length : null);
+  const topTracksCount = Number.isFinite(Number(rawTopCount)) && Number(rawTopCount) >= 0
+    ? Number(rawTopCount)
+    : (rawTopCount ?? null);
+
+  const isObserved = node.observed_plays !== undefined && node.observed_plays !== null;
+  const metricType = node.listening_metric_type || (isObserved ? "observed_plays" : "estimated_listening");
+  const metricLabel = node.listening_metric_label || (isObserved ? "Reproduções Observadas" : "Índice de Escuta");
 
   const spotifyFacts = [
     { key: "name", label: "Nome", value: sanitizeNodeName(node.name), tag: "[DADO SPOTIFY]" },
-    { key: "affinity_rank", label: "Posição no Top Ouvidos", value: node.affinity_rank ?? null, tag: "[DADO SPOTIFY]" },
+    {
+      key: "observed_plays",
+      label: "Reproduções Observadas",
+      value: observedPlays,
+      tag: "[DADO SPOTIFY / HISTÓRICO]",
+      description: "Quantidade de eventos de reprodução observados no histórico recente"
+    },
+    {
+      key: "affinity_rank",
+      label: "Posição no Top Ouvidos",
+      value: affinityRank,
+      tag: "[DADO SPOTIFY / AFINIDADE]",
+      subtag: "[DADO SPOTIFY / AFINIDADE]",
+      category: "[DADO SPOTIFY]",
+      description: "Ranking de afinidade no Top Ouvidos do Spotify"
+    },
+    {
+      key: "affinity_rank",
+      label: "Posição no Top Ouvidos",
+      value: affinityRank,
+      tag: "[DADO SPOTIFY]",
+      subtag: "[DADO SPOTIFY / AFINIDADE]",
+      category: "[DADO SPOTIFY]",
+      description: "Ranking de afinidade no Top Ouvidos do Spotify"
+    },
+    {
+      key: "saved_tracks_count",
+      label: "Músicas Salvas na Biblioteca",
+      value: savedTracksCount,
+      tag: "[DADO SPOTIFY / BIBLIOTECA]",
+      description: "Quantidade de músicas salvas na biblioteca do usuário"
+    },
+    {
+      key: "top_tracks_count",
+      label: "Faixas Principais no Perfil",
+      value: topTracksCount,
+      tag: "[DADO SPOTIFY / AFINIDADE]",
+      description: "Quantidade de faixas em destaque no perfil do artista"
+    },
     { key: "listening_count", label: "Contagem de Escutas", value: listeningCount, tag: "[DADO SPOTIFY]" },
     { key: "global_popularity", label: "Popularidade Global", value: Number.isFinite(node.global_popularity) ? node.global_popularity : 50, tag: "[DADO SPOTIFY]" },
     { key: "genres", label: "Gêneros Musicais", value: Array.isArray(node.genres) ? node.genres : [], tag: "[DADO SPOTIFY]" },
@@ -1079,20 +1221,50 @@ export function buildNodeProvenanceProfile(node = {}, graphMode = "artists") {
     ? (Number.isFinite(node.connected_artists_count) ? node.connected_artists_count : 1)
     : null;
 
+  const rawRatio = node.listeningRatio ?? node.listening_ratio;
+  const listeningRatio = Number.isFinite(Number(rawRatio))
+    ? Number(Number(rawRatio).toFixed(4))
+    : (Number.isFinite(node.proportionalRadius) ? Number((node.proportionalRadius / MAX_ARTIST_RADIUS).toFixed(4)) : null);
+
+  const listeningRank = Number.isFinite(node.listeningRank)
+    ? node.listeningRank
+    : (Number.isFinite(node.listening_rank) ? node.listening_rank : null);
+
   const beatcodeInferences = [
+    {
+      key: "listening_metric_type",
+      label: "Tipo da Métrica de Escuta",
+      value: metricType,
+      tag: "[INFERÊNCIA BEATCODE]",
+      description: isObserved ? "Reprodução observada a partir de eventos reais do usuário" : "Índice de escuta estimado/inferido"
+    },
+    {
+      key: "listening_metric_label",
+      label: "Rótulo da Métrica de Escuta",
+      value: metricLabel,
+      tag: "[INFERÊNCIA BEATCODE]",
+      description: "Classificação da métrica utilizada no dimensionamento do nó"
+    },
+    {
+      key: "listening_rank",
+      label: "Ranking Proporcional de Escuta",
+      value: listeningRank,
+      tag: "[INFERÊNCIA BEATCODE]",
+      description: "Posição ordinal na distribuição de escutas registradas"
+    },
+    {
+      key: "listening_ratio",
+      label: "Razão Linear de Escuta",
+      value: listeningRatio,
+      tag: "[INFERÊNCIA BEATCODE]",
+      description: "Proporção linear relativa (L_i / L_max)"
+    },
     {
       key: "affinity_score",
       label: "Score de Afinidade",
       value: affScore,
       tag: "[INFERÊNCIA BEATCODE]",
       description: "Transformação linear baseada na ordem ordinal dos mais ouvidos"
-    },
-    {
-      key: "listening_rank",
-      label: "Ranking Proporcional de Escuta",
-      value: node.listeningRank ?? null,
-      tag: "[INFERÊNCIA BEATCODE]",
-      description: "Posição ordinal na distribuição de escutas registradas"
     },
     {
       key: "degree_centrality",
@@ -1132,7 +1304,10 @@ export function buildNodeProvenanceProfile(node = {}, graphMode = "artists") {
     raw: {
       spotify: {
         name: sanitizeNodeName(node.name),
-        affinity_rank: node.affinity_rank ?? null,
+        affinity_rank: affinityRank,
+        observed_plays: observedPlays,
+        saved_tracks_count: savedTracksCount,
+        top_tracks_count: topTracksCount,
         listening_count: listeningCount,
         global_popularity: Number.isFinite(node.global_popularity) ? node.global_popularity : 50,
         genres: Array.isArray(node.genres) ? node.genres : [],
@@ -1141,8 +1316,11 @@ export function buildNodeProvenanceProfile(node = {}, graphMode = "artists") {
         image_url: node.image_url || null
       },
       inferences: {
+        listening_metric_type: metricType,
+        listening_metric_label: metricLabel,
+        listening_rank: listeningRank,
+        listening_ratio: listeningRatio,
         affinity_score: affScore,
-        listening_rank: node.listeningRank ?? null,
         degree_centrality: Number(degreeCent.toFixed(3)),
         betweenness_centrality: Number(betweennessCent.toFixed(3)),
         cluster_id: clusterId,

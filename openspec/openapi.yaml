@@ -195,11 +195,11 @@ components:
           items:
             $ref: "#/components/schemas/ClusterSummary"
         max_artist_listening_count:
-          type: integer
-          description: Contagem máxima de escutas entre todos os artistas
+          type: [number, integer]
+          description: Contagem máxima de escutas ou índice máximo entre todos os artistas
         max_genre_listening_count:
-          type: [integer, "null"]
-          description: Contagem máxima de escutas entre todos os gêneros no modo bipartite (null no modo unipartido)
+          type: [number, integer, "null"]
+          description: Contagem máxima de escutas ou índice máximo entre todos os gêneros no modo bipartite (null no modo unipartido)
 
     ClusterSummary:
       type: object
@@ -246,8 +246,27 @@ components:
           type: number
           format: float
         listening_count:
+          type: [number, integer]
+          description: Total de escutas reais/deduplicadas do usuário ou índice estimado de escuta (L_i)
+        observed_plays:
           type: integer
-          description: Total de escutas reais/deduplicadas do usuário para o artista ou gênero
+          description: Total de reproduções observadas verificadas (int >= 0; 0 quando não há histórico observado)
+        saved_tracks_count:
+          type: integer
+          description: Quantidade de faixas salvas na biblioteca do usuário para este artista ou gênero (nunca somada a reproduções)
+        top_tracks_count:
+          type: integer
+          description: Quantidade de faixas no top do usuário para este artista ou gênero (representa afinidade e ranking)
+        listening_metric_type:
+          type: string
+          enum: [observed_plays, estimated_listening_index]
+          description: Tipo da métrica de escuta (observed_plays quando há histórico observado real, ou estimated_listening_index quando ausente)
+        listening_metric_label:
+          type: string
+          description: Rótulo legível da métrica ('Reproduções Observadas' ou 'Índice Estimado de Escuta')
+        listening_period:
+          type: string
+          description: Período temporal de referência da métrica ('historico_observado' ou time_range)
         listening_rank:
           type: integer
           description: Classificação de escuta do nó (1 = mais ouvido)
@@ -257,7 +276,7 @@ components:
           description: Razão de escuta normalizada proporcional a max_artist_listening_count ou max_genre_listening_count
         listening_source:
           type: string
-          description: Fonte de extração da contagem de escuta (ex. user_tracks, explicit_count, genre_tracks_dedup)
+          description: Fonte de extração da contagem de escuta (ex. verified_playback_history, recent_playback_history, spotify_top_affinity, genre_tracks_dedup)
         cluster_id:
           type: integer
         color:
