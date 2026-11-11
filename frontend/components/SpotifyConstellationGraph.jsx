@@ -529,6 +529,65 @@ export default function SpotifyConstellationGraph() {
         rankById.get(node.id) ??
         1;
 
+      const rawObserved =
+        node.observed_plays ??
+        node.observedPlays ??
+        propEntry?.observed_plays ??
+        propEntry?.observedPlays ??
+        baseProps.observed_plays ??
+        baseProps.observedPlays ??
+        0;
+      const observed_plays =
+        Number.isFinite(Number(rawObserved)) && Number(rawObserved) >= 0
+          ? Number(rawObserved)
+          : 0;
+
+      const rawSaved =
+        node.saved_tracks_count ??
+        node.savedTracksCount ??
+        propEntry?.saved_tracks_count ??
+        baseProps.saved_tracks_count ??
+        0;
+      const saved_tracks_count =
+        Number.isFinite(Number(rawSaved)) && Number(rawSaved) >= 0
+          ? Number(rawSaved)
+          : 0;
+
+      const rawTopCount =
+        node.top_tracks_count ??
+        node.topTracksCount ??
+        propEntry?.top_tracks_count ??
+        baseProps.top_tracks_count ??
+        (Array.isArray(node.top_tracks) ? node.top_tracks.length : 0);
+      const top_tracks_count =
+        Number.isFinite(Number(rawTopCount)) && Number(rawTopCount) >= 0
+          ? Number(rawTopCount)
+          : 0;
+
+      const listening_metric_type =
+        node.listening_metric_type ??
+        propEntry?.listening_metric_type ??
+        baseProps.listening_metric_type ??
+        (observed_plays > 0 ? "observed_plays" : "estimated_listening_index");
+
+      const listening_metric_label =
+        node.listening_metric_label ??
+        propEntry?.listening_metric_label ??
+        baseProps.listening_metric_label ??
+        (observed_plays > 0 ? "Reproduções Observadas" : "Índice Estimado de Escuta");
+
+      const listening_source =
+        node.listening_source ??
+        propEntry?.listening_source ??
+        baseProps.listening_source ??
+        (observed_plays > 0 ? "recent_playback_history" : "spotify_top_affinity");
+
+      const listening_period =
+        node.listening_period ??
+        propEntry?.listening_period ??
+        baseProps.listening_period ??
+        (observed_plays > 0 ? "historico_observado" : timeRange);
+
       map.set(node.id, {
         ...baseProps,
         radius,
@@ -541,11 +600,25 @@ export default function SpotifyConstellationGraph() {
         listeningRatio: ratio,
         listening_rank: rank,
         listeningRank: rank,
+        observed_plays,
+        observedPlays: observed_plays,
+        saved_tracks_count,
+        savedTracksCount: saved_tracks_count,
+        top_tracks_count,
+        topTracksCount: top_tracks_count,
+        listening_metric_type,
+        listeningMetricType: listening_metric_type,
+        listening_metric_label,
+        listeningMetricLabel: listening_metric_label,
+        listening_source,
+        listeningSource: listening_source,
+        listening_period,
+        listeningPeriod: listening_period,
       });
     }
 
     return map;
-  }, [graphData.nodes, graphData.links, graphData.metadata, graphMode]);
+  }, [graphData.nodes, graphData.links, graphData.metadata, graphMode, timeRange]);
 
   useEffect(() => {
     visualPropsByNodeIdRef.current = visualPropsByNodeId;
@@ -564,6 +637,13 @@ export default function SpotifyConstellationGraph() {
       listening_rank: rawActiveNode.listening_rank ?? vProps.listening_rank,
       diameter: rawActiveNode.diameter ?? vProps.diameter,
       radius: rawActiveNode.radius ?? vProps.radius,
+      observed_plays: rawActiveNode.observed_plays ?? vProps.observed_plays,
+      saved_tracks_count: rawActiveNode.saved_tracks_count ?? vProps.saved_tracks_count,
+      top_tracks_count: rawActiveNode.top_tracks_count ?? vProps.top_tracks_count,
+      listening_metric_type: rawActiveNode.listening_metric_type ?? vProps.listening_metric_type,
+      listening_metric_label: rawActiveNode.listening_metric_label ?? vProps.listening_metric_label,
+      listening_source: rawActiveNode.listening_source ?? vProps.listening_source,
+      listening_period: rawActiveNode.listening_period ?? vProps.listening_period,
     };
   }, [rawActiveNode, visualPropsByNodeId]);
 
@@ -1058,10 +1138,34 @@ export default function SpotifyConstellationGraph() {
     const safeName = escapeHtml(node?.name || "Desconhecido");
     const isGenre = node?.node_type === "genre";
     const vProps = visualPropsByNodeIdRef.current.get(node?.id) || {};
+    const metricType =
+      vProps.listening_metric_type ||
+      node?.listening_metric_type ||
+      (Number(vProps.observed_plays ?? node?.observed_plays ?? 0) > 0
+        ? "observed_plays"
+        : "estimated_listening_index");
     const listeningCount =
       vProps.listening_count ?? node?.listening_count ?? extractRawListeningCount(node);
-    const listeningRank =
-      vProps.listening_rank ?? node?.listening_rank ?? node?.affinity_rank ?? "—";
+    const metricLabel =
+      metricType === "observed_plays"
+        ? `Reproduções Observadas (L_i): <strong style="color:#4ade80;">${escapeHtml(listeningCount)}</strong>`
+        : `Índice Estimado (L_i): <strong style="color:#4ade80;">${escapeHtml(listeningCount)} pts</strong>`;
+
+    const affinityRank =
+      vProps.affinity_rank ?? node?.affinity_rank ?? vProps.listening_rank ?? node?.listening_rank ?? "—";
+    const rawAffScore = vProps.affinity_score ?? node?.affinity_score ?? null;
+    const affinityScorePct =
+      rawAffScore !== null && rawAffScore !== undefined
+        ? `${Math.round(Number(rawAffScore) * 100)}%`
+        : null;
+    const affinityText =
+      affinityScorePct !== null
+        ? `#${escapeHtml(affinityRank)} (${escapeHtml(affinityScorePct)})`
+        : `#${escapeHtml(affinityRank)}`;
+
+    const savedTracksCount =
+      vProps.saved_tracks_count ?? node?.saved_tracks_count ?? 0;
+
     const ratioPct = Number(
       ((vProps.listening_ratio ?? node?.listening_ratio ?? 0.5) * 100)
     ).toFixed(1);
@@ -1070,11 +1174,13 @@ export default function SpotifyConstellationGraph() {
     ).toFixed(2);
     const typeLabel = isGenre ? "Hub Semântico · Gênero" : "Nó do Grafo · Artista";
 
-    return `<div style="padding:8px 11px;border-radius:10px;background:rgba(9,13,22,0.95);border:1px solid rgba(29,185,84,0.5);color:#f8fafc;font-family:system-ui,sans-serif;font-size:12px;line-height:1.45;min-width:190px;">
+    return `<div style="padding:8px 11px;border-radius:10px;background:rgba(9,13,22,0.95);border:1px solid rgba(29,185,84,0.5);color:#f8fafc;font-family:system-ui,sans-serif;font-size:12px;line-height:1.45;min-width:210px;">
       <strong style="display:block;color:#ffffff;font-size:13px;">${safeName}</strong>
       <span style="color:#4ade80;font-size:11px;font-weight:600;">${typeLabel}</span>
       <div style="margin-top:4px;padding-top:4px;border-top:1px solid rgba(148,163,184,0.2);color:#cbd5e1;font-size:11px;">
-        <div>Escutas (L_i): <strong style="color:#fff;">${escapeHtml(listeningCount)}</strong> · Rank <strong style="color:#38bdf8;">#${escapeHtml(listeningRank)}</strong></div>
+        <div>${metricLabel}</div>
+        <div>Afinidade Spotify: <strong style="color:#38bdf8;">${affinityText}</strong></div>
+        <div>Biblioteca: <strong style="color:#a78bfa;">${escapeHtml(savedTracksCount)} faixas salvas</strong></div>
         <div>Proporção (L_i/L_max): <strong style="color:#4ade80;">${escapeHtml(ratioPct)}%</strong></div>
         <div>Dimensão 3D (D_i): <strong style="color:#f8fafc;">${escapeHtml(diameter)}</strong></div>
       </div>
@@ -1478,6 +1584,7 @@ export default function SpotifyConstellationGraph() {
               nodeRelSize={1}
               nodeVal={getNodeVal}
               nodeCanvasObject={paintNode2D}
+              nodeLabel={renderNodeLabel3D}
               nodePointerAreaPaint={(node, color, ctx) => {
                 const r = Math.max(
                   visualPropsByNodeIdRef.current.get(node.id)?.radius || node.val || 10,

@@ -28,6 +28,42 @@ import {
 } from "../../lib/spaceGraphModel.js";
 
 /**
+ * Helper to display human-friendly data source labels.
+ */
+function formatSourceLabel(source) {
+  switch (source) {
+    case "verified_playback_history":
+      return "Histórico de Reprodução Verificado";
+    case "recent_playback_history":
+      return "Histórico de Reprodução Recente";
+    case "spotify_top_affinity":
+      return "Afinidade Algorítmica Spotify";
+    case "genre_tracks_dedup":
+      return "Deduplicação de Faixas de Gênero";
+    default:
+      return source || "Não informado";
+  }
+}
+
+/**
+ * Helper to display human-friendly observation period labels.
+ */
+function formatPeriodLabel(period) {
+  switch (period) {
+    case "historico_observado":
+      return "Histórico Observado (Reproduções Reais)";
+    case "short_term":
+      return "Últimas 4 semanas (Curto Prazo)";
+    case "medium_term":
+      return "Últimos 6 meses (Médio Prazo)";
+    case "long_term":
+      return "Vários Anos (Longo Prazo)";
+    default:
+      return period || "Não informado";
+  }
+}
+
+/**
  * Computes proportional listening metrics for the Inspector panel with deterministic fallbacks.
  */
 function deriveInspectorListeningMetrics(node, metadata, graphMode) {
@@ -40,11 +76,52 @@ function deriveInspectorListeningMetrics(node, metadata, graphMode) {
       diameter: "14.00",
       radius: "7.00",
       maxDiameter: graphMode === "bipartite" ? "24.00" : "28.00",
+      listeningMetricType: "estimated_listening_index",
+      listeningMetricLabel: "Índice Estimado de Escuta",
+      listeningSource: "spotify_top_affinity",
+      listeningPeriod: "medium_term",
+      observedPlays: 0,
+      savedTracksCount: 0,
+      topTracksCount: 0,
+      affinityRank: null,
+      affinityScore: null,
     };
   }
 
   const isGenre = node.node_type === "genre";
   const baseProps = computePlanetVisualProps(node, metadata || {}, graphMode, []);
+
+  const observedPlays = Number(
+    node.observed_plays ??
+    baseProps.observed_plays ??
+    0
+  );
+
+  const listeningMetricType =
+    node.listening_metric_type ||
+    baseProps.listening_metric_type ||
+    (observedPlays > 0 ? "observed_plays" : "estimated_listening_index");
+
+  const listeningMetricLabel =
+    node.listening_metric_label ||
+    baseProps.listening_metric_label ||
+    (listeningMetricType === "observed_plays"
+      ? "Reproduções Observadas"
+      : "Índice Estimado de Escuta");
+
+  const listeningSource =
+    node.listening_source ||
+    baseProps.listening_source ||
+    (listeningMetricType === "observed_plays"
+      ? "verified_playback_history"
+      : isGenre
+      ? "genre_tracks_dedup"
+      : "spotify_top_affinity");
+
+  const listeningPeriod =
+    node.listening_period ||
+    baseProps.listening_period ||
+    (listeningMetricType === "observed_plays" ? "historico_observado" : "medium_term");
 
   const rawCount =
     node.listening_count ??
@@ -52,6 +129,8 @@ function deriveInspectorListeningMetrics(node, metadata, graphMode) {
     baseProps.listening_count ??
     (isGenre
       ? node.connected_artists_count ?? baseProps.connectedArtistsCount ?? 1
+      : observedPlays > 0
+      ? observedPlays
       : Math.max(
           1,
           Math.round(
@@ -63,6 +142,24 @@ function deriveInspectorListeningMetrics(node, metadata, graphMode) {
 
   const listeningRank =
     node.listening_rank ?? baseProps.listening_rank ?? node.affinity_rank ?? 1;
+
+  const affinityRank =
+    node.affinity_rank ?? baseProps.affinity_rank ?? node.listening_rank ?? null;
+
+  const affinityScore =
+    node.affinity_score ?? baseProps.affinity_score ?? null;
+
+  const savedTracksCount = Number(
+    node.saved_tracks_count ??
+    baseProps.saved_tracks_count ??
+    0
+  );
+
+  const topTracksCount = Number(
+    node.top_tracks_count ??
+    baseProps.top_tracks_count ??
+    (Array.isArray(node.top_tracks) ? node.top_tracks.length : 0)
+  );
 
   const D_max = isGenre ? 30.0 : graphMode === "bipartite" ? 24.0 : 28.0;
   const rawRatio =
@@ -86,6 +183,15 @@ function deriveInspectorListeningMetrics(node, metadata, graphMode) {
     diameter: diameterNum.toFixed(2),
     radius: radiusNum.toFixed(2),
     maxDiameter: D_max.toFixed(2),
+    listeningMetricType,
+    listeningMetricLabel,
+    listeningSource,
+    listeningPeriod,
+    observedPlays,
+    savedTracksCount,
+    topTracksCount,
+    affinityRank,
+    affinityScore,
   };
 }
 
@@ -340,12 +446,123 @@ export function SpaceInspectorPanel({
               </div>
             </div>
 
-            {/* SECTION A: Measured Spotify Source Data & Listening Metrics */}
+            {/* 1. DIMENSÃO 1: Métrica de Dimensão 3D (L_i) */}
+            <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-emerald-500/20 space-y-3">
+              <div className="flex items-center justify-between">
+                <span
+                  className={
+                    listeningMetrics.listeningMetricType === "observed_plays"
+                      ? "space-badge-spotify text-[10px]"
+                      : "space-badge-inferred text-[10px]"
+                  }
+                >
+                  <Activity className="w-3 h-3" />
+                  {listeningMetrics.listeningMetricType === "observed_plays"
+                    ? "[DADO SPOTIFY / HISTÓRICO]"
+                    : "[INFERÊNCIA BEATCODE / ÍNDICE DE ESCUTA]"}
+                </span>
+                <span className="text-[10px] text-zinc-400 font-mono">
+                  D_i = D_max × (L_i / L_max)
+                </span>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-bold text-zinc-100 flex items-center gap-1.5">
+                  <span>Métrica de Dimensão 3D (L_i):</span>
+                  <span className="text-emerald-400 font-semibold">{listeningMetrics.listeningMetricLabel}</span>
+                </h4>
+                <p className="text-[10px] text-zinc-400 mt-0.5">
+                  O diâmetro 3D é proporcional estritamente a L_i em relação ao nó com maior incidência do grafo.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80">
+                  <span className="block text-[10px] text-zinc-400 uppercase tracking-wider">
+                    {listeningMetrics.listeningMetricLabel} (L_i)
+                  </span>
+                  <span className="font-mono font-bold text-emerald-400 text-sm">
+                    {listeningMetrics.listeningCount}{" "}
+                    <span className="text-[10px] font-normal text-zinc-400">
+                      {selectedNode.node_type === "genre"
+                        ? "artistas/faixas"
+                        : listeningMetrics.listeningMetricType === "observed_plays"
+                        ? "reproduções"
+                        : "pts (índice)"}
+                    </span>
+                  </span>
+                </div>
+
+                <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80">
+                  <span className="block text-[10px] text-zinc-400 uppercase tracking-wider">
+                    Proporção (L_i / L_max)
+                  </span>
+                  <span className="font-mono font-bold text-sky-400 text-sm">
+                    {listeningMetrics.listeningRatioPct}
+                  </span>
+                </div>
+
+                <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80">
+                  <span className="block text-[10px] text-zinc-400 uppercase tracking-wider">
+                    Dimensão 3D (D_i)
+                  </span>
+                  <span className="font-mono font-bold text-emerald-300 text-sm">
+                    {listeningMetrics.diameter}{" "}
+                    <span className="text-[10px] font-normal text-zinc-400">
+                      (R={listeningMetrics.radius})
+                    </span>
+                  </span>
+                </div>
+
+                <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80">
+                  <span className="block text-[10px] text-zinc-400 uppercase tracking-wider">
+                    Ranking Proporcional
+                  </span>
+                  <span className="font-mono font-bold text-emerald-400 text-sm">
+                    {listeningMetrics.listeningRank
+                      ? `#${listeningMetrics.listeningRank}`
+                      : "Sem ranking"}
+                  </span>
+                </div>
+
+                <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80">
+                  <span className="block text-[10px] text-zinc-400 uppercase tracking-wider">
+                    Fonte dos Dados
+                  </span>
+                  <span
+                    className="text-zinc-200 text-[11px] font-medium truncate block mt-0.5"
+                    title={listeningMetrics.listeningSource}
+                  >
+                    {formatSourceLabel(listeningMetrics.listeningSource)}
+                  </span>
+                </div>
+
+                <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80">
+                  <span className="block text-[10px] text-zinc-400 uppercase tracking-wider">
+                    Período Observado
+                  </span>
+                  <span
+                    className="text-zinc-200 text-[11px] font-medium truncate block mt-0.5"
+                    title={listeningMetrics.listeningPeriod}
+                  >
+                    {formatPeriodLabel(listeningMetrics.listeningPeriod)}
+                  </span>
+                </div>
+              </div>
+
+              {listeningMetrics.listeningMetricType === "estimated_listening_index" && (
+                <div className="p-2 rounded-lg bg-sky-950/30 border border-sky-500/30 text-[11px] text-sky-200/90 leading-relaxed">
+                  <strong className="text-sky-300">Nota metodológica:</strong> Trata-se de um índice estimado (baseado em afinidade e faixas principais), pois o Spotify não fornece contagens absolutas para aquele período.
+                </div>
+              )}
+            </div>
+
+            {/* 2. DIMENSÃO 2: Afinidade Spotify (Top Tracks / Top Artists) */}
             <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-emerald-500/20 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="space-badge-spotify text-[10px]">
                   <Sparkles className="w-3 h-3 text-emerald-400" />
-                  [DADO SPOTIFY]
+                  [DADO SPOTIFY / AFINIDADE]
                 </span>
                 {provenanceProfile.raw.spotify.spotify_url && (
                   <a
@@ -360,33 +577,50 @@ export function SpaceInspectorPanel({
                 )}
               </div>
 
+              <div>
+                <h4 className="text-xs font-bold text-zinc-100">
+                  Afinidade Spotify (Top Artists / Top Tracks)
+                </h4>
+                <p className="text-[11px] text-zinc-400 mt-0.5 leading-relaxed">
+                  Indicador de afinidade algorítmica do Spotify (não representa contagem de reproduções).
+                </p>
+              </div>
+
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80">
                   <span className="block text-[10px] text-zinc-400 uppercase tracking-wider">
-                    Escutas Registradas (L_i)
+                    Posição no Top Ouvidos
                   </span>
                   <span className="font-mono font-bold text-emerald-400 text-sm">
-                    {listeningMetrics.listeningCount}{" "}
-                    <span className="text-[10px] font-normal text-zinc-400">
-                      {selectedNode.node_type === "genre" ? "artistas" : "escutas"}
-                    </span>
-                  </span>
-                </div>
-
-                <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80">
-                  <span className="block text-[10px] text-zinc-400 uppercase tracking-wider">
-                    Ranking de Escuta
-                  </span>
-                  <span className="font-mono font-bold text-emerald-400 text-sm">
-                    {listeningMetrics.listeningRank
-                      ? `#${listeningMetrics.listeningRank}`
+                    {listeningMetrics.affinityRank
+                      ? `#${listeningMetrics.affinityRank}`
                       : "Sem ranking"}
                   </span>
                 </div>
 
-                <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80 col-span-2">
+                <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80">
                   <span className="block text-[10px] text-zinc-400 uppercase tracking-wider">
-                    Popularidade Global Spotify
+                    Score de Afinidade
+                  </span>
+                  <span className="font-mono font-bold text-sky-400 text-sm">
+                    {listeningMetrics.affinityScore !== null && listeningMetrics.affinityScore !== undefined
+                      ? `${(listeningMetrics.affinityScore * 100).toFixed(1)}%`
+                      : "—"}
+                  </span>
+                </div>
+
+                <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80">
+                  <span className="block text-[10px] text-zinc-400 uppercase tracking-wider">
+                    Faixas em Destaque
+                  </span>
+                  <span className="font-mono font-bold text-zinc-200 text-sm">
+                    {listeningMetrics.topTracksCount} faixas
+                  </span>
+                </div>
+
+                <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80">
+                  <span className="block text-[10px] text-zinc-400 uppercase tracking-wider">
+                    Popularidade Global
                   </span>
                   <div className="flex items-center gap-2 mt-0.5">
                     <span className="font-semibold text-zinc-200 text-sm">
@@ -469,7 +703,38 @@ export function SpaceInspectorPanel({
                 )}
             </div>
 
-            {/* SECTION B: BeatCode Topological Inferences & Proportional 3D Dimension */}
+            {/* 3. DIMENSÃO 3: Biblioteca Salva (Saved Tracks) */}
+            <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-purple-500/20 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="space-badge-spotify text-[10px]">
+                  <BookOpen className="w-3 h-3 text-purple-400" />
+                  [DADO SPOTIFY / BIBLIOTECA]
+                </span>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-bold text-zinc-100">
+                  Biblioteca Salva (Saved Tracks)
+                </h4>
+                <p className="text-[11px] text-zinc-400 mt-0.5 leading-relaxed">
+                  Músicas salvas no seu acervo pessoal (não incrementam a quantidade de escutas).
+                </p>
+              </div>
+
+              <div className="bg-zinc-950/60 p-2.5 rounded-lg border border-zinc-800/80 flex items-center justify-between">
+                <span className="text-[10px] text-zinc-400 uppercase tracking-wider">
+                  Músicas Salvas na Biblioteca
+                </span>
+                <span className="font-mono font-bold text-purple-400 text-sm">
+                  {listeningMetrics.savedTracksCount}{" "}
+                  <span className="text-[10px] font-normal text-zinc-400">
+                    faixas salvas
+                  </span>
+                </span>
+              </div>
+            </div>
+
+            {/* 4. BeatCode Topological Inferences */}
             <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-sky-500/20 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="space-badge-inferred text-[10px]">
@@ -477,32 +742,11 @@ export function SpaceInspectorPanel({
                   [INFERÊNCIA BEATCODE]
                 </span>
                 <span className="text-[10px] text-zinc-400 font-mono">
-                  D_i = D_max × (L_i / L_max)
+                  Métricas Topológicas
                 </span>
               </div>
 
               <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80">
-                  <span className="block text-[10px] text-zinc-400 uppercase tracking-wider">
-                    Proporção (L_i / L_max)
-                  </span>
-                  <span className="font-mono font-bold text-sky-400 text-sm">
-                    {listeningMetrics.listeningRatioPct}
-                  </span>
-                </div>
-
-                <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80">
-                  <span className="block text-[10px] text-zinc-400 uppercase tracking-wider">
-                    Dimensão 3D (D_i)
-                  </span>
-                  <span className="font-mono font-bold text-emerald-300 text-sm">
-                    {listeningMetrics.diameter}{" "}
-                    <span className="text-[10px] font-normal text-zinc-400">
-                      (R={listeningMetrics.radius})
-                    </span>
-                  </span>
-                </div>
-
                 <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80">
                   <span className="block text-[10px] text-zinc-400 uppercase tracking-wider">
                     Centralidade Grau (CD)

@@ -37,11 +37,12 @@ export function createResourceRegistry() {
 }
 
 /**
- * Resolves listening metrics (L_i, ratio L_i / L_max, rank, diameter D_i) from node and visualProps.
+ * Resolves listening metrics (L_i, ratio L_i / L_max, rank, diameter D_i) from node and visualProps,
+ * strictly differentiating observed_plays from estimated_listening_index.
  *
  * @param {Object} node
  * @param {Object} props
- * @returns {{ listeningCount: number, listeningRatio: number, listeningRank: number|null, diameter: number, radius: number }}
+ * @returns {{ listeningCount: number, listeningRatio: number, listeningRank: number|null, diameter: number, radius: number, observedPlays: number|null, listeningMetricType: string, listeningMetricLabel: string }}
  */
 export function resolveNodeListeningMetrics(node = {}, props = {}) {
   const isGenre =
@@ -61,20 +62,54 @@ export function resolveNodeListeningMetrics(node = {}, props = {}) {
     ? Number(props.diameter)
     : Number((radius * 2).toFixed(2));
 
+  const rawObserved =
+    node?.observed_plays ??
+    props?.observed_plays ??
+    props?.observedPlays ??
+    null;
+  const observedPlays =
+    Number.isFinite(Number(rawObserved)) && Number(rawObserved) >= 0
+      ? Number(rawObserved)
+      : null;
+
+  const listeningMetricType =
+    node?.listening_metric_type ??
+    props?.listening_metric_type ??
+    props?.listeningMetricType ??
+    (observedPlays !== null && observedPlays > 0
+      ? "observed_plays"
+      : "estimated_listening_index");
+
+  const listeningMetricLabel =
+    node?.listening_metric_label ??
+    props?.listening_metric_label ??
+    props?.listeningMetricLabel ??
+    (listeningMetricType === "observed_plays"
+      ? "Reproduções Observadas"
+      : "Índice Estimado de Escuta");
+
   const rawCount =
     node?.listening_count ??
-    node?.play_count ??
+    node?.listeningCount ??
     props?.listening_count ??
     props?.listeningCount ??
-    (isGenre
+    (observedPlays !== null && observedPlays > 0
+      ? observedPlays
+      : isGenre
       ? node?.connected_artists_count ?? props?.connectedArtistsCount ?? 1
       : Math.max(1, Math.round((Number(node?.affinity_score) || 0.5) * 100)));
 
-  const listeningCount = Math.max(1, Math.round(Number(rawCount) || 1));
+  const listeningCount = Math.max(
+    1,
+    typeof rawCount === "number" && !Number.isInteger(rawCount)
+      ? Number(rawCount.toFixed(1))
+      : Math.round(Number(rawCount) || 1)
+  );
 
   const maxRadiusRef = isGenre ? 15.0 : 14.0;
   const rawRatio =
     node?.listening_ratio ??
+    node?.listeningRatio ??
     props?.listening_ratio ??
     props?.listeningRatio ??
     Math.min(1.0, Math.max(0.05, radius / maxRadiusRef));
@@ -83,7 +118,9 @@ export function resolveNodeListeningMetrics(node = {}, props = {}) {
 
   const listeningRank =
     node?.listening_rank ??
+    node?.listeningRank ??
     props?.listening_rank ??
+    props?.listeningRank ??
     node?.affinity_rank ??
     null;
 
@@ -93,6 +130,9 @@ export function resolveNodeListeningMetrics(node = {}, props = {}) {
     listeningRank,
     diameter,
     radius,
+    observedPlays,
+    listeningMetricType,
+    listeningMetricLabel,
   };
 }
 
@@ -230,7 +270,18 @@ export function createNodeLabelSprite(
 
   const metrics = resolveNodeListeningMetrics(node, visualProps);
   const pctText = `${Math.round(metrics.listeningRatio * 100)}%`;
-  const subtitle = `${metrics.listeningCount} escutas · ${pctText}`;
+
+  const explicitType =
+    node?.listening_metric_type ||
+    visualProps?.listening_metric_type ||
+    visualProps?.listeningMetricType;
+
+  const subtitle =
+    explicitType === "estimated_listening_index"
+      ? `${metrics.listeningCount} pts (índice) · ${pctText}`
+      : explicitType === "observed_plays" || (metrics.observedPlays !== null && metrics.observedPlays > 0)
+      ? `${metrics.listeningCount} reproduções · ${pctText}`
+      : `${metrics.listeningCount} escutas · ${pctText}`;
 
   const labelMat = new THREE.SpriteMaterial({
     color: 0xffffff,
@@ -271,6 +322,9 @@ export function createNodeLabelSprite(
     subtitle,
     listeningCount: metrics.listeningCount,
     listeningRatio: metrics.listeningRatio,
+    observedPlays: metrics.observedPlays,
+    listeningMetricType: metrics.listeningMetricType,
+    listeningMetricLabel: metrics.listeningMetricLabel,
   };
 
   return labelSprite;
@@ -353,6 +407,9 @@ export function createPlanetObject3D(
       listening_count: metrics.listeningCount,
       listening_ratio: metrics.listeningRatio,
       listening_rank: metrics.listeningRank,
+      observed_plays: metrics.observedPlays,
+      listening_metric_type: metrics.listeningMetricType,
+      listening_metric_label: metrics.listeningMetricLabel,
     },
     node,
     escapedName,
