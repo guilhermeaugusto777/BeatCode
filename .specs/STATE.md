@@ -82,13 +82,21 @@
 - **Date**: 2026-11-11
 - **Status**: active
 
+### AD-011
+- **Decision**: Establish strict tripartite isolation of Spotify data sources: A. Reprodução Observada (`observed_plays` from timestamped history), B. Afinidade Spotify (`affinity_rank`, `affinity_score`, `top_tracks_count`), and C. Biblioteca Salva (`saved_tracks_count`). In the absence of absolute historical play counts, enforce the Zero Fictitious Counts invariant by cleanly transitioning $L_i$ to an `estimated_listening_index` with transparent methodology (composite of affinity score and top-tracks presence across the selected horizon) and period, NEVER presented as raw play counts. Enforce genre listening deduplication on the unique key `(track_id, genre)`.
+- **Reason**: Upholds project core truth and AI governance rules, prevents the fabrication of synthetic stream counts, eliminates duplicate counting of multi-artist collaborations within the same genre, and preserves strict empirical provenance.
+- **Trade-off**: Requires explicit typing, distinct metadata tags, and UI badge rendering in `spaceGraphModel.js` and `SpaceInspectorPanel.jsx`.
+- **Scope**: `frontend/lib/spaceGraphModel.js`, `frontend/components/space/SpaceInspectorPanel.jsx`, `.specs/features/beatcode-space/`
+- **Date**: 2026-11-11
+- **Status**: active
+
 ## Handoff
 
 - **Feature**: `beatcode-space` (`.specs/features/beatcode-space`)
-- **Phase / Task**: Wave 4 Planning — Tasks `T11`–`T14` & Proofs `C16`–`C19` Documented for Graphify Delta
-- **Completed**: TLC Spec-Driven documentation updated (`spec.md`, `design.md`, `tasks.md`, `STATE.md`) with Graphify 3D Knowledge Graph visual model, linear listening sizing, genre graph fixes, hover zoom stability, tasks T11–T14, and proofs C16–C19.
-- **In-progress** (file:line): `.specs/features/beatcode-space/tasks.md:309` — Ready for Wave 4 execution upon user authorization.
-- **Next step**: Execute Wave 4 tasks T11–T14 according to specialist assignments.
+- **Phase / Task**: Wave 5 Planning — Tasks `T15`–`T18` & Proofs `C20`–`C22` Documented for Tripartite Spotify Sources & Non-Fictitious Metrics
+- **Completed**: TLC Spec-Driven documentation updated (`spec.md`, `design.md`, `tasks.md`, `STATE.md`) with tripartite Spotify data source separation (observed plays vs affinity vs saved tracks), Zero Fictitious Counts invariant, `estimated_listening_index` fallback, `(track_id, genre)` deduplication, tasks T15–T18, and proofs C20–C22.
+- **In-progress** (file:line): `.specs/features/beatcode-space/tasks.md:430` — Ready for Wave 5 execution upon user authorization.
+- **Next step**: Execute Wave 5 tasks T15–T18 according to specialist assignments.
 - **Blockers**: none
 - **Uncommitted files**: `AGENTS.md`, `.agents/`, `graphify-out/`
 - **Branch**: `main`

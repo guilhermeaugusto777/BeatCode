@@ -79,6 +79,13 @@ Tasks are organized into 3 dependency waves (DAG) to maximize concurrent executi
 - **T12** (`frontend/lib/spaceGraphModel.js`) — Owner: `Engenheiro de IA e Agentes` (Depends on: `T1`)
 - **T13** (`frontend/lib/spaceGraphModel.js` + `frontend/components/space/SpaceHudControls.jsx` + `frontend/components/space/SpaceInspectorPanel.jsx`) — Owner: `Desenvolvedor Back-end + APIs e Integrações` (Depends on: `T1, T7, T8, T9`)
 - **T14** (`frontend/components/SpotifyConstellationGraph.jsx`) — Owner: `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade` (Depends on: `T9`)
+
+### Phase 5: Wave 5 — Spotify Source Rigor & Non-Fictitious Metrics
+
+- **T15** (`frontend/lib/spaceGraphModel.js`) — Owner: `Engenheiro de IA e Agentes` (Depends on: `T1, T12`)
+- **T16** (`frontend/lib/spaceGraphModel.js`) — Owner: `Engenheiro de IA e Agentes` (Depends on: `T12, T15`)
+- **T17** (`frontend/components/space/SpaceInspectorPanel.jsx`) — Owner: `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade` (Depends on: `T8, T13, T15, T16`)
+- **T18** (`frontend/tests/spaceGraphModel.test.mjs`) — Owner: `QA` (Depends on: `T15, T16, T17`)
 - **Post-Wave Verification** — Owner: `Revisor de Código + Segurança + DevOps` (Verifier) + `QA` (`check_proofs.py` & `validate_verification.py`)
 
 ```
@@ -105,6 +112,17 @@ T7 -> T13
 T8 -> T13
 T9 -> T13
 T9 -> T14
+T1 -> T15
+T12 -> T15
+T12 -> T16
+T15 -> T16
+T8 -> T17
+T13 -> T17
+T15 -> T17
+T16 -> T17
+T15 -> T18
+T16 -> T18
+T17 -> T18
 ```
 
 ---
@@ -410,6 +428,92 @@ T9 -> T14
 
 ---
 
+### Phase 5: Wave 5 — Spotify Source Rigor & Non-Fictitious Metrics
+
+#### T15: Implement tripartite source separation and provenance classification in domain model
+
+**What**: Update `frontend/lib/spaceGraphModel.js` to strictly separate the three Spotify data sources: A. `observed_plays` (verified timestamped history events or logs), B. Spotify algorithmic affinity (`affinity_rank`, `affinity_score`, `top_tracks_count`), and C. Library curation (`saved_tracks_count`). Enforce that affinity metrics and saved tracks counts are never presented as play counts, and classify them explicitly in `buildNodeProvenanceProfile`.
+**Where**: `frontend/lib/spaceGraphModel.js`
+**Owner**: `Engenheiro de IA e Agentes`
+**Depends on**: T1, T12
+**Reuses**: Domain math and provenance engine
+**Requirement**: SPACE-05, SPACE-06
+
+**Done when**:
+
+- [ ] Isolates `observed_plays`, algorithmic affinity (`affinity_rank`/`affinity_score`), and library curation (`saved_tracks_count`) into distinct typed fields
+- [ ] Guarantees affinity scores and saved track counts are never presented or converted into play/stream counts
+- [ ] Gate check passes: `node --test frontend/tests/spaceGraphModel.test.mjs`
+
+**Tests**: unit
+**Gate**: quick
+**Commit**: `feat(provenance): implementa separacao tripartite de fontes e classificacao rigorosa`
+
+---
+
+#### T16: Implement evidence-backed `estimated_listening_index` and `(track_id, genre)` deduplication
+
+**What**: Implement in `spaceGraphModel.js` the Zero Fictitious Counts invariant: when absolute playback history is unavailable, compute $L_i$ as an explicit `estimated_listening_index` (normalized composite of affinity and top tracks), transparently labeled with its methodology and evaluation horizon, never as a raw play count. Implement deduplication on key `(track_id, genre)` so multi-artist tracks in the same genre contribute listening weight exactly once.
+**Where**: `frontend/lib/spaceGraphModel.js`
+**Owner**: `Engenheiro de IA e Agentes`
+**Depends on**: T12, T15
+**Reuses**: Listening metric formulas and deduplication maps
+**Requirement**: SPACE-01, SPACE-06
+
+**Done when**:
+
+- [ ] Returns `metric_type: "estimated_listening_index"` with methodology metadata when historical play counts are absent
+- [ ] Deduplicates genre listening volumes on the composite key `(track_id, genre)`
+- [ ] Gate check passes: `node --test frontend/tests/spaceGraphModel.test.mjs`
+
+**Tests**: unit
+**Gate**: quick
+**Commit**: `feat(listening-index): implementa indice estimado de escuta e deduplicacao por chave track_id-genre`
+
+---
+
+#### T17: Update contextual Inspector sidebar to reflect tripartite sources, evidence labels, and zero fictitious counts
+
+**What**: Update `frontend/components/space/SpaceInspectorPanel.jsx` to render explicit source badges for `observed_plays` (with observation period), `estimated_listening_index` (with methodology disclosure badge), Spotify affinity rank/score, and library saved tracks count, ensuring no fabricated stream counts are displayed.
+**Where**: `frontend/components/space/SpaceInspectorPanel.jsx`
+**Owner**: `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade`
+**Depends on**: T8, T13, T15, T16
+**Reuses**: Inspector layout and badge styles
+**Requirement**: SPACE-06, SPACE-07
+
+**Done when**:
+
+- [ ] Inspector renders distinct badges for observed plays, estimated listening index, affinity rank, and library saved tracks
+- [ ] Displays methodology disclosure for estimated listening index and observation window for observed plays
+- [ ] Gate check passes: `npm --prefix frontend run lint`
+
+**Tests**: integration
+**Gate**: build
+**Commit**: `feat(inspector-provenance): exibe separacao tripartite e metodologia do indice estimado no painel`
+
+---
+
+#### T18: Expand unit and integration test suite with checks C20 to C22
+
+**What**: Add automated tests to `frontend/tests/spaceGraphModel.test.mjs` verifying C20 (tripartite data separation and zero fictitious counts invariant), C21 (genre deduplication on `(track_id, genre)` key), and C22 (inspector provenance transparency and non-fictitious metric labeling).
+**Where**: `frontend/tests/spaceGraphModel.test.mjs`
+**Owner**: `QA`
+**Depends on**: T15, T16, T17
+**Reuses**: Existing unit test harness (`node --test`)
+**Requirement**: SPACE-01, SPACE-06, SPACE-10
+
+**Done when**:
+
+- [ ] All 3 new proofs (`C20`, `C21`, `C22`) pass with code 0 under `node --test frontend/tests/spaceGraphModel.test.mjs`
+- [ ] All 22 checks (`C1`–`C22`) pass with 0 failures
+- [ ] Gate check passes: `node --test frontend/tests/spaceGraphModel.test.mjs && npm --prefix frontend run lint`
+
+**Tests**: integration
+**Gate**: quick
+**Commit**: `test(provenance-metrics): adiciona testes automatizados de separacao de fontes e deduplicacao`
+
+---
+
 ## Checks
 
 **C1** - Unipartite artist nodes compute deterministic 3D planet radius in `[3.50, 14.00]`, atmospheric halo radiation $\Phi(u) = 0.70\sqrt{C_B} + 0.30C_D$, orbital ring eligibility ($\text{Div}_{\text{cluster}} \ge 0.30$ or `bridge_artist`), and safe fallback defaults for missing/`NaN` attributes (SPACE-01, AC 1, AC 4)
@@ -469,6 +573,15 @@ Proof: run frontend | ok 18 - SPACE-01/06/07: genre graph auto-switches to bipar
 **C19** - Hover camera zoom stability ensures node hover does not trigger `zoomToFit` or camera matrix reset, with `hasInitialFitRef` preventing re-fitting on subsequent `onEngineStop` triggers and stable callback refs preventing component remounts (SPACE-03, SPACE-04)
 Proof: run frontend | ok 19 - SPACE-03/04: hover over 3D node maintains camera zoom and position without triggering zoomToFit or matrix reset
 
+**C20** - Tripartite data source separation and zero fictitious counts invariant: `frontend/lib/spaceGraphModel.js` strictly isolates `observed_plays` (timestamped history), Spotify algorithmic affinity (`affinity_rank`/`affinity_score`), and library curation (`saved_tracks_count`), enforcing that when empirical play history is unavailable, $L_i$ transitions cleanly to `estimated_listening_index` with explicit methodology disclosure and zero fabricated stream counts (SPACE-05, SPACE-06, AC 2)
+Proof: run frontend | ok 20 - SPACE-05/06: spaceGraphModel isolates tripartite Spotify sources and enforces zero fictitious counts invariant
+
+**C21** - Deduplication by `(track_id, genre)` key for genre listening volume: single tracks featuring multiple collaborative artists of the same genre contribute play count and listening weight exactly once to $L_g$, preventing artificial inflation from multi-artist collaborations (SPACE-01, SPACE-06, AC 2)
+Proof: run frontend | ok 21 - SPACE-01/06: genre listening aggregation deduplicates multi-artist collaborations on (track_id, genre) key
+
+**C22** - Contextual Inspector provenance transparency: `SpaceInspectorPanel.jsx` displays explicit source classification badges, observation window for `observed_plays`, methodology disclosure for `estimated_listening_index`, and never misrepresents estimated indexes or library counts as absolute stream numbers (SPACE-06, AC 2)
+Proof: run frontend | ok 22 - SPACE-06: inspector panel surfaces transparent source classification and methodology badges without fictitious counts
+
 ---
 
 ## Handoff
@@ -497,6 +610,10 @@ Proof: run frontend | ok 19 - SPACE-03/04: hover over 3D node maintains camera z
 | T12: `frontend/lib/spaceGraphModel.js` | 1 domain math slice | ✅ Granular |
 | T13: `frontend/lib/spaceGraphModel.js` (+ `SpaceHudControls.jsx` & `SpaceInspectorPanel.jsx`) | 1 genre feature slice | ✅ Granular |
 | T14: `frontend/components/SpotifyConstellationGraph.jsx` | 1 camera stability slice | ✅ Granular |
+| T15: `frontend/lib/spaceGraphModel.js` | 1 domain provenance slice | ✅ Granular |
+| T16: `frontend/lib/spaceGraphModel.js` | 1 listening index slice | ✅ Granular |
+| T17: `frontend/components/space/SpaceInspectorPanel.jsx` | 1 inspector provenance slice | ✅ Granular |
+| T18: `frontend/tests/spaceGraphModel.test.mjs` | 1 test suite slice | ✅ Granular |
 
 ---
 
@@ -518,6 +635,10 @@ Proof: run frontend | ok 19 - SPACE-03/04: hover over 3D node maintains camera z
 | T12 | T1 | T1 -> T12 | ✅ Match |
 | T13 | T1, T7, T8, T9 | T1 -> T13, T7 -> T13, T8 -> T13, T9 -> T13 | ✅ Match |
 | T14 | T9 | T9 -> T14 | ✅ Match |
+| T15 | T1, T12 | T1 -> T15, T12 -> T15 | ✅ Match |
+| T16 | T12, T15 | T12 -> T16, T15 -> T16 | ✅ Match |
+| T17 | T8, T13, T15, T16 | T8 -> T17, T13 -> T17, T15 -> T17, T16 -> T17 | ✅ Match |
+| T18 | T15, T16, T17 | T15 -> T18, T16 -> T18, T17 -> T18 | ✅ Match |
 
 ---
 
@@ -539,3 +660,7 @@ Proof: run frontend | ok 19 - SPACE-03/04: hover over 3D node maintains camera z
 | T12 | Spatial Domain, Math & Explainability | unit | unit | ✅ OK |
 | T13 | 3D/2D UI, WebGL Renderer & Camera/Inspector Integration | integration | integration | ✅ OK |
 | T14 | 3D/2D UI, WebGL Renderer & Camera/Inspector Integration | integration | integration | ✅ OK |
+| T15 | Spatial Domain, Math & Explainability | unit | unit | ✅ OK |
+| T16 | Spatial Domain, Math & Explainability | unit | unit | ✅ OK |
+| T17 | 3D/2D UI, WebGL Renderer & Camera/Inspector Integration | integration | integration | ✅ OK |
+| T18 | Spatial Domain, Math & Explainability | unit | unit | ✅ OK |

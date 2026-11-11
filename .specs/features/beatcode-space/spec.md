@@ -28,7 +28,34 @@ Explicitly excluded. Documented to prevent scope creep.
 
 Implementers MUST NOT invent or alter formulas during execution. Every visual and topological calculation is governed by the deterministic equations and fallback rules below:
 
-### 1. Input Sanitization & Default Fallbacks for Missing or Invalid Attributes
+### 1. Rigorous Separation of Spotify Data Sources & Zero Fictitious Counts Invariant
+
+Every musical metric presented in the 3D Knowledge Graph MUST be strictly categorized into one of three distinct, non-fungible Spotify data sources. The system MUST NEVER fabricate, simulate, or extrapolate counts where empirical data is absent:
+
+1. **A. Reprodução Observada (`observed_plays`):**
+   - **Definition:** Empirical playback events directly captured from Spotify history (`recent_tracks` with verified ISO timestamps `played_at`, or verified local playback logs).
+   - **Semantics:** Represents verified listening occurrences with explicit temporal window identification and deduplication of tracks within playback sessions.
+   - **Display Rule:** Displayed strictly as `"Reproduções Observadas"` with the exact observation interval (e.g., `"Últimas 50 reproduções registradas"`).
+
+2. **B. Afinidade Spotify (`affinity_rank`, `affinity_score`, `top_tracks_count`):**
+   - **Definition:** Ordinal ranking and algorithmic affinity metrics supplied by Spotify's Top Artists and Top Tracks endpoints across the three official horizons (`short_term`, `medium_term`, `long_term`).
+   - **Semantics:** Proprietary Spotify algorithmic affinity score ($S_{\text{aff}} \in [0.25, 1.00]$).
+   - **Display Rule:** Tagged as `[DADO SPOTIFY]` and `[INFERÊNCIA BEATCODE]`. It MUST NEVER be presented, labeled, or converted into an absolute number of streams or plays.
+
+3. **C. Biblioteca Salva (`saved_tracks_count`):**
+   - **Definition:** Aggregate count of tracks saved by the user in their personal library (`saved_tracks`).
+   - **Semantics:** An indicator of personal collection curation and archival preference.
+   - **Display Rule:** Tagged as `"Músicas Salvas na Biblioteca"`. It MUST NEVER increment, substitute for, or be combined with listening/stream counts.
+
+#### Zero Fictitious Counts Invariant & Estimated Listening Index
+The absence of absolute historical play counts MUST NEVER be disguised by generating fictitious or synthetic play numbers:
+- When verified playback logs are available, $L_i$ represents **`observed_plays`**.
+- When empirical playback logs are absent or insufficient for absolute counts, $L_i$ transitions cleanly to an **Índice Estimado de Escuta** (`estimated_listening_index`), explicitly labeled as such.
+- The UI MUST transparently state the estimation methodology (normalized composite of Spotify affinity score and top-tracks presence across the chosen time horizon) and the evaluated period, and MUST NEVER present this index as an absolute stream/play count.
+
+---
+
+### 2. Input Sanitization & Default Fallbacks for Missing or Invalid Attributes
 
 For any node $u$, link $e = (u, v)$, or `metadata` object with missing (`undefined`, `null`), `NaN`, infinite, or out-of-range fields:
 
@@ -40,9 +67,11 @@ For any node $u$, link $e = (u, v)$, or `metadata` object with missing (`undefin
 - **Connected Artists Count ($k_g$ for genre nodes):** If `u.connected_artists_count` is finite and $\ge 1$, clamp to $[1, 50]$; otherwise infer from incident edges in `links` (minimum $1$). On artist nodes (`node_type === "artist"`), `connected_artists_count` is explicitly `null`.
 - **Node Color & Name:** If `u.color` is missing or not a valid hex color, default to `#1DB954`. If `u.name` is missing or empty, default to `"Desconhecido"`.
 
-### 2. Deterministic Linear Listening Sizing Formula ($L_i$) & Node Radii
+---
 
-Node diameters and radii scale strictly linearly with registered listening counts $L_i$ (stream/scrobble volume or cumulative track play count). This eliminates non-linear distortion and ensures that visual volume matches listening behavior with mathematical rigor:
+### 3. Deterministic Linear Listening Sizing Formula ($L_i$) & Node Radii
+
+Node diameters and radii scale strictly linearly with the evidence-backed listening metric $L_i$ (either `observed_plays` when verified logs exist, or the transparently labeled `estimated_listening_index`). This eliminates non-linear distortion and ensures that visual volume matches listening behavior with mathematical rigor:
 
 $$D_i = D_{\max} \times \left(\frac{L_i}{L_{\max}}\right), \quad R_i = \frac{D_i}{2}$$
 
@@ -62,12 +91,12 @@ To prevent dense genre hubs from overpowering individual artist nodes, separate 
 - **Genres (`node_type === "genre"`):**
   $$D_{\max,\text{genre}} = 24.0, \quad R_{\max,\text{genre}} = 12.0$$
 
-#### Deduplicated Genre Listening Aggregation ($L_g$)
-When calculating listening volume for genre nodes ($L_g$), deduplication is mandatory:
-- Each unique track associated with the genre contributes its play count exactly once to $L_g$, even when the track lists multiple collaborative artists belonging to that same genre. This prevents artificial inflation of genre nodes with frequent multi-artist collaborations.
+#### Strict Deduplication by Genre on `(track_id, genre)` Key ($L_g$)
+When calculating listening volume for genre nodes ($L_g$), deduplication on the unique key `(track_id, genre)` is mandatory:
+- A single unique track associated with genre $g$ featuring multiple collaborative artists of that same genre contributes its play count (or listening weight) **exactly once** to genre $g$. This prevents artificial inflation of genre volumes caused by multi-artist collaborations on the same track.
 
 #### Missing and Invalid Value Fallback ($L_i \le 0$ or `NaN`)
-If a node has missing, `null`, `undefined`, non-numeric, or non-positive listening counts ($L_i \le 0$ or `NaN`):
+If a node has missing, `null`, `undefined`, non-numeric, or non-positive listening metrics ($L_i \le 0$ or `NaN`):
 - `listeningRatio = 0`
 - `isFallbackListening = true`
 - The system assigns a safe minimum geometric radius $R_{\min,\text{safe}} = 2.0$ ($D_{\min,\text{safe}} = 4.0$) strictly for 3D visibility, hit-testing, and mesh rendering.
@@ -75,7 +104,7 @@ If a node has missing, `null`, `undefined`, non-numeric, or non-positive listeni
 
 ---
 
-### 3. Graphify-Inspired Clean 3D Knowledge Graph Visual Encoding
+### 4. Graphify-Inspired Clean 3D Knowledge Graph Visual Encoding
 
 The visualization replaces speculative cosmic/planetary elements (decorative atmospheric halos, Saturn rings, procedural starry skies) with the clean, authoritative design language of Graphify:
 
@@ -86,7 +115,7 @@ The visualization replaces speculative cosmic/planetary elements (decorative atm
 
 ---
 
-### 4. Genre Graph Cohesion & Full Neighborhood Preservation
+### 5. Genre Graph Cohesion & Full Neighborhood Preservation
 
 - **Automatic Bipartite Switching:** Whenever the user filters by `genre` (via search query, node-type filter, or clicking a genre pill in the HUD), the system SHALL automatically comute the active graph mode to `bipartite`.
 - **Projected Genre-Genre Edges in `filterSpaceGraph`:** When isolating genre relationships, the system projects direct `genre-genre` weighted edges based on normalized Jaccard overlap of shared artists:
@@ -95,14 +124,14 @@ The visualization replaces speculative cosmic/planetary elements (decorative atm
 
 ---
 
-### 5. Hover Camera Zoom Stability Architecture
+### 6. Hover Camera Zoom Stability Architecture
 
 - **`hasInitialFitRef` Guard:** A stable reference `hasInitialFitRef` prevents `<ForceGraph3D>`'s `onEngineStop` callback from triggering `zoomToFit` after the initial graph load and simulation stabilization. Subsequent physics ticks or engine stops triggered by hover or focus updates MUST NOT reset the user's camera zoom.
 - **Stable Callback References:** All hover, click, and interaction handlers passed to `<ForceGraph3D>` (`onNodeHover`, `onLinkHover`, `onNodeClick`, `onBackgroundClick`) MUST maintain stable references across component re-renders (via `useRef` and `useCallback`), preventing unneeded canvas unmounting, stage re-centering, or camera matrix jitter.
 
 ---
 
-### 6. 3D Knowledge Cluster Centroids ($\mathbf{C}_k$)
+### 7. 3D Knowledge Cluster Centroids ($\mathbf{C}_k$)
 
 - Given $K = \max(\text{clusters.length}, 1)$ and Louvain modularity $Q = \text{clamp}(\text{Number.isFinite}(\text{metadata?.modularity\_score}) \ ? \ \text{metadata.modularity\_score} : 0.0, \ -0.5, \ 1.0)$:
   $$R_{\text{galaxy}} = 220.0 \cdot \left(1.0 + 1.8 \cdot \max(0.0, Q)\right) \in [220.0, 616.0]$$
@@ -112,7 +141,7 @@ The visualization replaces speculative cosmic/planetary elements (decorative atm
     $$z_k = 1.0 - \frac{2k + 1}{K}, \quad \rho_k = \sqrt{\max(0.0, 1.0 - z_k^2)}, \quad \theta_k = k \cdot \varphi$$
     $$\mathbf{C}_k = \left(\text{round}(R_{\text{galaxy}} \rho_k \cos\theta_k, 2), \ \text{round}(R_{\text{galaxy}} \rho_k \sin\theta_k, 2), \ \text{round}(R_{\text{galaxy}} z_k, 2)\right)$$
 
-### 7. Edge Weight Composition (`0.65g + 0.25c + 0.10t`) & Role of the Four Connection Attributes
+### 8. Edge Weight Composition (`0.65g + 0.25c + 0.10t`) & Role of the Four Connection Attributes
 
 Each unipartite link (`link_type === "artist-artist"`) carries four connection attributes that participate in the weight and explainability model as follows:
 
@@ -130,7 +159,7 @@ Each unipartite link (`link_type === "artist-artist"`) carries four connection a
   $$W_{\text{calc}}(u, v) = \text{round}\left(\text{clamp}(C_g + C_c + C_t, \ 0.0, \ 1.0), \ 4\right)$$
   If `link.components` is missing or invalid on an `artist-artist` link, $g, c, t$ default to $0.0$, `shared_genres` defaults to `[]`, and `link.weight` is clamped to $[0.0, 1.0]$ (default $0.12$). In `bipartite` mode (`link_type === "artist-genre"`), `link.components` is `null` and $W(a, g) = \text{round}(0.35 + 0.65 \cdot S_{\text{aff}}(a), 3)$.
 
-### 8. 2-Hop Indirect Connection Relevance ($A_{2\text{hop}}(u, z)$)
+### 9. 2-Hop Indirect Connection Relevance ($A_{2\text{hop}}(u, z)$)
 
 - Given filtered graph $G = (V, E)$, direct 1-hop neighbors of $u$ are $N_1(u) = \{m \in V \mid (u, m) \in E\}$, ordered descending by $W(u, m)$ then ascending by $m.\text{name}$.
 - Candidate 2-hop nodes are $N_2(u) = \{z \in V \setminus (\{u\} \cup N_1(u)) \mid M(u, z) \neq \emptyset\}$, where $M(u, z) = \{m \in N_1(u) \mid (m, z) \in E\}$ is the set of intermediate bridge nodes.
@@ -213,7 +242,11 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 **Acceptance Criteria**:
 
 1. WHEN the user hovers over a planet or stellar core THEN the system SHALL highlight the hovered node and its incident trajectories, attenuate non-incident elements, and display a sanitized tooltip (`escapeHtml`) with the node's name, type, and primary metric.
-2. WHEN a planet or genre hub is selected THEN the system SHALL display in the contextual sidebar its attributes explicitly tagged with `[DADO SPOTIFY]` (`name`, `affinity_rank`, `global_popularity`, `genres`, `top_tracks`) versus `[INFERÊNCIA BEATCODE]` (`affinity_score`, `degree_centrality`, `betweenness_centrality`, `cluster_id`, `connected_artists_count`).
+2. WHEN a node or genre hub is selected THEN the system SHALL display in the contextual sidebar its attributes rigorously categorized across the three Spotify sources:
+   - **A. Reprodução Observada:** `observed_plays` (verified timestamped history events or verified logs, with observation period noted) OR `estimated_listening_index` (clearly identified as an algorithmic composite of affinity and top tracks, NEVER presented as raw play counts).
+   - **B. Afinidade Spotify:** `affinity_rank`, `affinity_score`, `top_tracks_count` tagged with `[DADO SPOTIFY]` and `[INFERÊNCIA BEATCODE]`, NEVER displayed as stream counts.
+   - **C. Biblioteca Salva:** `saved_tracks_count` tagged as library archival metric, NEVER added to or combined with play counts.
+   The system SHALL enforce the Zero Fictitious Counts invariant: zero fabricated stream numbers are ever generated.
 3. WHEN a planet is selected in `artists` mode THEN the system SHALL list its direct 1-hop connections ordered by `link.weight` showing the exact weighted contributions $C_g = 0.65g$, $C_c = 0.25c$, $C_t = 0.10t$ alongside the qualitative `shared_genres` classification (`"exact_and_subtoken_match"` vs `"subtoken_lexical_match"`), plus the top 8 indirect 2-hop connections ranked by $A_{2\text{hop}}(u, z) = 1 - \prod_m (1 - 0.70 W_{um} W_{mz})$, allowing click-to-navigate on any related planet.
 4. WHEN the user clicks the background space or the close button on the inspector THEN the system SHALL clear `selectedNode` and restore full-universe trajectory visibility while preserving the current camera position.
 

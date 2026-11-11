@@ -47,7 +47,31 @@ flowchart TD
 
 ## Deterministic Mathematical Model & Backend Data Provenance Contract
 
-### 1. Mathematical Summary (`frontend/lib/spaceGraphModel.js`)
+### 1. Tripartite Spotify Data Source Separation & Zero Fictitious Counts Invariant
+
+All metrics surfaced in BeatCode Space belong strictly to one of three non-fungible data sources, governed by the invariant that zero synthetic or fictitious stream numbers may ever be generated:
+
+1. **A. Reprodução Observada (`observed_plays`):**
+   - Verified playback events captured from Spotify history (`recent_tracks` with ISO timestamp `played_at`, or verified playback logs).
+   - Identifies the exact observation window and deduplicates tracks within sessions.
+   - Expressed exclusively as observed playback events.
+
+2. **B. Afinidade Spotify (`affinity_rank`, `affinity_score`, `top_tracks_count`):**
+   - Ordinal positions and algorithmic affinity scores ($S_{\text{aff}} \in [0.25, 1.00]$) provided by Spotify's Top Artists / Top Tracks endpoints.
+   - Tagged as `[DADO SPOTIFY]` and `[INFERÊNCIA BEATCODE]`.
+   - MUST NEVER be labeled, converted, or displayed as an absolute number of streams or plays.
+
+3. **C. Biblioteca Salva (`saved_tracks_count`):**
+   - Aggregate count of tracks saved by the user in their personal library (`saved_tracks`).
+   - Represents personal archival curation, and MUST NEVER increment or be combined with listening counts.
+
+#### Zero Fictitious Counts & Estimated Listening Index
+If empirical playback logs are absent or insufficient for absolute counts, $L_i$ cleanly transitions to an **Índice Estimado de Escuta** (`estimated_listening_index`):
+- Explicitly identified and labeled as an estimated index in the UI.
+- Displays transparent methodology: composite of Spotify affinity rank/score and top-tracks presence across the selected time horizon.
+- MUST NEVER be presented as an absolute stream or play count.
+
+### 2. Mathematical Summary (`frontend/lib/spaceGraphModel.js`)
 
 All mathematical rules defined in `spec.md` are implemented as pure, deterministic functions with zero randomness and explicit input sanitization:
 
@@ -60,17 +84,18 @@ All mathematical rules defined in `spec.md` are implemented as pure, determinist
 
 - **Deterministic Linear Listening Sizing Formula ($L_i$):**
   $$D_i = D_{\max} \times \left(\frac{L_i}{L_{\max}}\right), \quad R_i = \frac{D_i}{2}$$
+  Where $L_i$ is evidence-backed: either `observed_plays` (when available) or `estimated_listening_index` (transparently labeled).
   - **Mandatory Proportionality Examples:**
     - $1000$ vs $500 \implies 2.0\times$
-    - $1000$ vs $750 \implies 1.3333\times$ ($4/3$)
+    - $1000$ vs $750 \implies \frac{4}{3} \approx 1.3333\times$
     - $1500$ vs $1000 \implies 1.5\times$
   - **Separate Maximum Sizing Scales:**
     - Artists: $D_{\max,\text{artist}} = 28.0 \implies R_{\max,\text{artist}} = 14.0$
     - Genres: $D_{\max,\text{genre}} = 24.0 \implies R_{\max,\text{genre}} = 12.0$
-  - **Deduplicated Genre Listening Aggregation ($L_g$):**
-    Each unique track associated with genre $g$ contributes its play count exactly once to $L_g$, even when multiple artists on that track share genre $g$.
+  - **Deduplicated Genre Listening Aggregation on `(track_id, genre)` Key ($L_g$):**
+    Each unique track associated with genre $g$ contributes its play count (or listening weight) exactly once to $L_g$, even when multiple collaborating artists on that track belong to the same genre $g$.
   - **Safe Missing/Invalid Fallback ($L_i \le 0$ or `NaN`):**
-    `listeningRatio = 0`, `isFallbackListening = true`, $R_{\min,\text{safe}} = 2.0$ ($D_{\min,\text{safe}} = 4.0$) for 3D visibility without distorting the strictly linear ratio of nodes with valid $L_i > 0$.
+    `listeningRatio = 0`, `isFallbackListening = true`, $R_{\min,\text{safe}} = 2.0$ ($D_{\min,\text{safe}} = 4.0$) strictly for 3D visibility without distorting the strictly linear ratio of nodes with valid $L_i > 0$.
 
 - **Graphify-Inspired Visual Encoding:**
   - Deep discreet canvas: `#050508` (no starfield or space dust).
@@ -263,3 +288,4 @@ export const DEFAULT_SPACE_PREFERENCES = {
 | Specialist Role Alignment | `Engenheiro de IA e Agentes` owns `T1, T12` (math/explainability model & linear listening sizing); `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade` owns all CSS, 3D WebGL, and React components (`T4`, `T6`, `T7`, `T8`, `T9`, `T11`, `T14`); `Desenvolvedor Back-end + APIs e Integrações` owns `T3, T5, T13` | Aligns 100% with the configured roles and limits in Maestri while preserving wave parallelism and independent review |
 | Graphify-Inspired 3D Knowledge Graph & Linear Listening Sizing (AD-009) | Shift from speculative planetary elements to clean Graphify-inspired 3D nodes on `#050508` dark canvas with strictly linear listening sizing ($D_i = D_{\max} \cdot (L_i / L_{\max})$, $R_i = D_i / 2$) | Eliminates cosmic visual noise, ensures mathematical proportionality ($1000$ vs $500 \implies 2.0\times$), separates artist/genre maximum scales ($14.0$ vs $12.0$), deduplicates genre play counts, and applies safe non-distorting fallback for $L_i \le 0$ |
 | Genre Graph Cohesion & Hover Camera Stability (AD-010) | Auto-switch to `bipartite` on genre filter, project `genre-genre` weighted edges in `filterSpaceGraph`, preserve full neighborhood in Inspector, and guard `zoomToFit` with `hasInitialFitRef` alongside stable callback refs | Prevents empty/disconnected genre subgraphs, guarantees complete contextual navigation, and fixes the camera zoom-loss bug on node hover |
+| Tripartite Source Separation, Zero Fictitious Counts & Deduplication by `(track_id, genre)` (AD-011) | Separate `observed_plays` from Spotify algorithmic affinity (`affinity_rank`/`affinity_score`) and library curation (`saved_tracks_count`); default to `estimated_listening_index` with transparent methodology rather than fictitious counts; deduplicate genre listening on `(track_id, genre)` | Eliminates fabricated stream numbers, preserves empirical truth of listening evidence, and prevents distortion from multi-artist collaborations |
