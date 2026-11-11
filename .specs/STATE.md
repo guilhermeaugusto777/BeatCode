@@ -66,13 +66,29 @@
 - **Date**: 2026-11-11
 - **Status**: active
 
+### AD-009
+- **Decision**: Replace speculative cosmic/planetary metaphor (atmospheres, Saturn rings, starfield) with an authoritative 3D Knowledge Graph inspired by Graphify (clean avatar spheres, faceted genre hubs, Louvain knowledge clusters, `#050508` dark canvas) and enforce strictly linear listening sizing ($D_i = D_{\max} \cdot (L_i / L_{\max})$, $R_i = D_i / 2$) with separate scales for artists ($D_{\max}=28.0, R_{\max}=14.0$) and genres ($D_{\max}=24.0, R_{\max}=12.0$), deduplicated genre listening aggregation ($L_g$), and safe geometric fallback ($R_{\min,\text{safe}}=2.0, \text{isFallbackListening}=\text{true}$) for $L_i \le 0$ or `NaN`.
+- **Reason**: Eliminates visual distraction and cognitive clutter, guarantees visual volume mathematically reflects listening volume ($1000$ vs $500 \implies 2.0\times$, $1000$ vs $750 \implies 1.3333\times$, $1500$ vs $1000 \implies 1.5\times$), and prevents multi-artist collaboration distortion in genres.
+- **Trade-off**: Requires updating node sizing math in `frontend/lib/spaceGraphModel.js` and visual styling in `PlanetaryRenderer.js` and `globals.css`.
+- **Scope**: `frontend/lib/spaceGraphModel.js`, `frontend/components/space/PlanetaryRenderer.js`, `frontend/app/globals.css`, `.specs/features/beatcode-space/`
+- **Date**: 2026-11-11
+- **Status**: active
+
+### AD-010
+- **Decision**: Fix genre graph cohesion by automatically switching to `bipartite` mode when filtering by `genre`, generating projected `genre-genre` weighted edges ($W(g_1, g_2) = \frac{|A(g_1) \cap A(g_2)|}{|A(g_1) \cup A(g_2)|}$) in `filterSpaceGraph`, and preserving full bipartite neighborhood in the analytical inspector. Eliminate the hover camera zoom loss bug using `hasInitialFitRef` to restrict `zoomToFit` to initial stabilization and wrapping hover callbacks in stable references.
+- **Reason**: Solves empty/broken genre subgraphs, guarantees complete neighborhood navigation in the inspector, and fixes intrusive camera resets when hovering over 3D nodes.
+- **Trade-off**: Adds projected edge generation to `filterSpaceGraph` and requires managing ref stability for `<ForceGraph3D>` interaction props.
+- **Scope**: `frontend/lib/spaceGraphModel.js`, `frontend/components/SpotifyConstellationGraph.jsx`, `frontend/components/space/SpaceInspectorPanel.jsx`
+- **Date**: 2026-11-11
+- **Status**: active
+
 ## Handoff
 
 - **Feature**: `beatcode-space` (`.specs/features/beatcode-space`)
-- **Phase / Task**: Validate Phase — All Tasks `T1`–`T10` & Proofs `C1`–`C15` Complete & Verified
-- **Completed**: All 10 tasks (`T1`–`T10`), live browser E2E suite (`C15`), and TLC specification/design/validation artifacts completed, tested, and atomically committed.
-- **In-progress** (file:line): none
-- **Next step**: Feature complete and ready for user review.
+- **Phase / Task**: Wave 4 Planning — Tasks `T11`–`T14` & Proofs `C16`–`C19` Documented for Graphify Delta
+- **Completed**: TLC Spec-Driven documentation updated (`spec.md`, `design.md`, `tasks.md`, `STATE.md`) with Graphify 3D Knowledge Graph visual model, linear listening sizing, genre graph fixes, hover zoom stability, tasks T11–T14, and proofs C16–C19.
+- **In-progress** (file:line): `.specs/features/beatcode-space/tasks.md:309` — Ready for Wave 4 execution upon user authorization.
+- **Next step**: Execute Wave 4 tasks T11–T14 according to specialist assignments.
 - **Blockers**: none
 - **Uncommitted files**: `AGENTS.md`, `.agents/`, `graphify-out/`
 - **Branch**: `main`

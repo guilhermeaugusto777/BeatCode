@@ -1,4 +1,4 @@
-# BeatCode Space Design
+# BeatCode Space Design — 3D Knowledge Graph (Graphify-Inspired)
 
 **Spec**: `.specs/features/beatcode-space/spec.md`
 **Status**: Approved
@@ -7,26 +7,20 @@
 
 ## Architecture Overview
 
-**Recommended Approach (Selected):** Modular 3D/2D Force-Graph Universe (`react-force-graph-3d` + `three` + `react-force-graph-2d`) backed by a pure, deterministic mathematical & explainability layer (`frontend/lib/spaceGraphModel.js`), a defensive client preference storage layer (`frontend/lib/spacePreferences.js`), and a verified FastAPI contract (`backend/main.py` + `backend/tests/test_api.py` + `openspec/openapi.yaml`).
+**Recommended Approach (Selected):** Modular 3D/2D Knowledge Graph Universe (`react-force-graph-3d` + `three` + `react-force-graph-2d`) inspired by Graphify, backed by a pure, deterministic mathematical & explainability layer (`frontend/lib/spaceGraphModel.js`), a defensive client preference storage layer (`frontend/lib/spacePreferences.js`), and a verified FastAPI contract (`backend/main.py` + `backend/tests/test_api.py` + `openspec/openapi.yaml`).
 
-### Approach Exploration
-
-| Approach | Summary | Trade-offs | Verdict |
-| -------- | ------- | ---------- | ------- |
-| **A. `react-force-graph-3d` + Custom Three.js Planetary Renderer + Pure Mathematical Domain Layer (Recommended)** | Uses `react-force-graph-3d` (`d3-force-3d` + Three.js scene graph) with custom `nodeThreeObject` meshes (textured/procedural planets, atmospheric Fresnel halos, tilted orbital rings, octahedron genre star-cores, background starfield), WebGL context-loss/restore handlers, deterministic GPU disposal (`disposeThreeUniverse`), and a pure JS mathematical/explainability module (`spaceGraphModel.js`). | Requires `ssr: false` dynamic import and explicit Three.js resource lifecycle tracking, both verified by automated integration tests (`C9`–`C13`). | **Selected** — best balance of visual fidelity, physics stability, deterministic testability, and seamless state parity with `ForceGraph2D`. |
-| **B. Raw Three.js / React Three Fiber (`@react-three/fiber`) Custom Physics Loop** | Builds custom WebGL canvas and force simulation loop from scratch using R3F. | Introduces React 19 peer-dependency friction with `@react-three/fiber` and re-implements 3D force simulation, raycasting, and camera-fitting logic already solved by `react-force-graph-3d`. | Rejected |
-| **C. CSS 3D / Canvas 2D Pseudo-3D Projection** | Projects 3D coordinates onto a 2D HTML5 Canvas without WebGL. | Lacks true 3D lighting, planetary shaders, orbital rings, volumetric halos, and 360° spatial immersion. | Rejected |
+The visual language shifts from speculative planetary elements (atmospheric halos, Saturn-like rings, procedural starry skies) to an authoritative **3D Knowledge Graph inspired by Graphify**: clean 3D node spheres and polyhedra, explainable luminous edge trajectories, cohesive Louvain knowledge cluster envelopes, and a calm, discreet dark canvas (`#050508`).
 
 ```mermaid
 flowchart TD
-    API["FastAPI Backend (/api/graph & /auth/*)\nVerified connected_artists_count & Provenance"] --> MODEL["Pure Spatial Math & Explainability Model\n(frontend/lib/spaceGraphModel.js)"]
-    PREFS["Safe Storage Manager\n(frontend/lib/spacePreferences.js)"] --> COORD["Universe Coordinator & Camera/Context Controller\n(SpotifyConstellationGraph.jsx)"]
+    API["FastAPI Backend (/api/graph & /auth/*)\nVerified connected_artists_count & Provenance"] --> MODEL["Pure Spatial Math & Explainability Model\n(frontend/lib/spaceGraphModel.js)\nLinear Listening Sizing + Genre Projections"]
+    PREFS["Safe Storage Manager\n(frontend/lib/spacePreferences.js)"] --> COORD["Universe Coordinator & Camera Stability Controller\n(SpotifyConstellationGraph.jsx)\nhasInitialFitRef + Stable Callback Refs"]
     MODEL --> COORD
-    COORD -->|view_mode = space_3d & WebGL healthy| FG3D["3D Universe Stage\n(PlanetaryRenderer.js + ForceGraph3D)"]
+    COORD -->|view_mode = space_3d & WebGL healthy| FG3D["3D Knowledge Graph Stage\n(PlanetaryRenderer.js + ForceGraph3D)\nClean Nodes + #050508 Canvas"]
     COORD -->|view_mode = map_2d or webglcontextlost| FG2D["2D Cartographic Stage\n(ForceGraph2D Fallback)"]
     FG3D -->|webglcontextlost / webglcontextrestored| COORD
-    COORD --> HUD["Observatory Top Bar & 360° Camera Dock\n(SpaceHudControls.jsx)"]
-    COORD --> PANEL["Contextual Planet Inspector & Cosmic Legend\n(SpaceInspectorPanel.jsx)"]
+    COORD --> HUD["Observatory Top Bar & 360° Camera Dock\n(SpaceHudControls.jsx)\nAuto-Bipartite on Genre Filter"]
+    COORD --> PANEL["Contextual Planet & Genre Inspector\n(SpaceInspectorPanel.jsx)\nFull Bipartite Neighborhood Preservation"]
 ```
 
 ---
@@ -38,8 +32,8 @@ flowchart TD
 | Component | Location | How to Use |
 | --------- | -------- | ---------- |
 | `compute_unipartite_artist_graph` & `compute_bipartite_artist_genre_graph` | `backend/main.py` | Authoritative backend graph engine; normalized so `connected_artists_count` is explicitly present on every `GraphNode` (`int >= 1` on `genre` nodes, `None` on `artist` nodes) and verified by integration tests in `backend/tests/test_api.py` |
-| `SpotifyConstellationGraph` | `frontend/components/SpotifyConstellationGraph.jsx` | Evolved to coordinate welcome/auth state, 3D/2D stage switching, WebGL context-loss/recovery, camera controller, keyboard shortcuts (`/` and `Escape`), and modular child components |
-| `globals.css` | `frontend/app/globals.css` | Extended with BeatCode Space cosmic design tokens (`--space-void`, `--space-nebula`, glassmorphic HUD surfaces, `@media (prefers-reduced-motion: reduce)` rules) |
+| `SpotifyConstellationGraph` | `frontend/components/SpotifyConstellationGraph.jsx` | Evolved to coordinate welcome/auth state, 3D/2D stage switching, WebGL context-loss/recovery, camera controller, keyboard shortcuts (`/` and `Escape`), `hasInitialFitRef` hover zoom protection, and modular child components |
+| `globals.css` | `frontend/app/globals.css` | Extended with BeatCode Space clean knowledge graph tokens (`--space-void: #050508`, glassmorphic HUD surfaces, `@media (prefers-reduced-motion: reduce)` rules) |
 
 ### Integration Points
 
@@ -63,21 +57,43 @@ All mathematical rules defined in `spec.md` are implemented as pure, determinist
   - $C_D(u) = \text{clamp}(u.\text{metrics?.degree\_centrality} \ ?? \ 0.0, \ 0.0, \ 1.0)$
   - $C_B(u) = \text{clamp}(u.\text{metrics?.betweenness\_centrality} \ ?? \ 0.0, \ 0.0, \ 1.0)$
   - $k_g = \text{clamp}(u.\text{connected\_artists\_count} \ ?? \ \deg(g), \ 1, \ 50)$ for `node_type === "genre"`, and `null` for `node_type === "artist"`.
-- **Planetary & Stellar Core Radii:**
-  - Composite mass index: $M(u) = 0.55\hat{S}_{\text{aff}}(u) + 0.30\hat{P}_{\text{glob}}(u) + 0.15C_D(u) \in [0.0, 1.0]$
-  - Unipartite artist planet: $R_{\text{planet}}(u) = \text{round}(3.5 + 10.5 \cdot M(u), 2) \in [3.50, 14.00]$
-  - Bipartite artist planet: $R_{\text{planet}}(u) = \text{round}(3.0 + 9.0 \cdot M(u), 2) \in [3.00, 12.00]$
-  - Bipartite genre stellar core: $R_{\text{star}}(g) = \text{round}(5.0 + 10.0 \cdot \min(1.0, k_g / 12.0), 2) \in [5.83, 15.00]$
-- **Atmospheric Halo & Orbital Rings:**
-  - $\Phi(u) = \text{clamp}(0.70\sqrt{C_B(u)} + 0.30C_D(u), 0.0, 1.0)$
-  - $R_{\text{halo}}(u) = \text{round}(R_{\text{base}}(u) \cdot (1.15 + 1.25\Phi(u)), 2)$
-  - $\alpha_{\text{halo}}(u) = \text{round}(0.10 + 0.55\Phi(u)^{0.80}, 3) \in [0.100, 0.650]$
-  - `hasOrbitalRing`: true iff $u.\text{id} === \text{metadata?.bridge\_artist?.id}$ or $\text{Div}_{\text{cluster}}(u) \ge 0.30$.
-- **3D Fibonacci Cluster Centroids:**
+
+- **Deterministic Linear Listening Sizing Formula ($L_i$):**
+  $$D_i = D_{\max} \times \left(\frac{L_i}{L_{\max}}\right), \quad R_i = \frac{D_i}{2}$$
+  - **Mandatory Proportionality Examples:**
+    - $1000$ vs $500 \implies 2.0\times$
+    - $1000$ vs $750 \implies 1.3333\times$ ($4/3$)
+    - $1500$ vs $1000 \implies 1.5\times$
+  - **Separate Maximum Sizing Scales:**
+    - Artists: $D_{\max,\text{artist}} = 28.0 \implies R_{\max,\text{artist}} = 14.0$
+    - Genres: $D_{\max,\text{genre}} = 24.0 \implies R_{\max,\text{genre}} = 12.0$
+  - **Deduplicated Genre Listening Aggregation ($L_g$):**
+    Each unique track associated with genre $g$ contributes its play count exactly once to $L_g$, even when multiple artists on that track share genre $g$.
+  - **Safe Missing/Invalid Fallback ($L_i \le 0$ or `NaN`):**
+    `listeningRatio = 0`, `isFallbackListening = true`, $R_{\min,\text{safe}} = 2.0$ ($D_{\min,\text{safe}} = 4.0$) for 3D visibility without distorting the strictly linear ratio of nodes with valid $L_i > 0$.
+
+- **Graphify-Inspired Visual Encoding:**
+  - Deep discreet canvas: `#050508` (no starfield or space dust).
+  - Clean avatar spheres and faceted hubs; zero atmospheric halos or Saturn rings.
+  - Knowledge cluster envelopes on active Louvain communities.
+
+- **Genre Graph Cohesion & Projected Edges:**
+  - When filtering by `genre`, the graph auto-switches to `bipartite`.
+  - Projected `genre-genre` edges in `filterSpaceGraph`:
+    $$W(g_1, g_2) = \frac{|A(g_1) \cap A(g_2)|}{|A(g_1) \cup A(g_2)|} \in [0.0, 1.0]$$
+  - Full neighborhood preservation in the Inspector.
+
+- **Hover Camera Zoom Stability Architecture:**
+  - `hasInitialFitRef = useRef(false)` prevents `zoomToFit` on subsequent `onEngineStop` invocations after initial stabilization.
+  - Stable callback references for `onNodeHover`, `onLinkHover`, and `onNodeClick` avoid re-creating `<ForceGraph3D>` props.
+
+- **3D Knowledge Cluster Centroids ($\mathbf{C}_k$):**
   - $R_{\text{galaxy}} = 220.0 \cdot (1.0 + 1.8 \cdot \max(0.0, Q)) \in [220.0, 616.0]$, distributed via Golden Angle $\varphi = \pi(3 - \sqrt{5})$.
+
 - **4-Attribute Edge Weight Composition (`0.65g + 0.25c + 0.10t` + `shared_genres`):**
   - $C_g = \text{round}(0.65g, 4)$, $C_c = \text{round}(0.25c, 4)$, $C_t = \text{round}(0.10t, 4)$, $W_{\text{calc}} = \text{round}(\text{clamp}(C_g + C_c + C_t, 0, 1), 4)$.
-  - `shared_genres` ($u.\text{genres} \cap v.\text{genres}$) provides qualitative classification of the $0.65g$ genre component: `"exact_and_subtoken_match"` (when `shared_genres.length > 0` and $g > 0$), `"subtoken_lexical_match"` (when `shared_genres.length === 0` and $g > 0$), or `"none"` (when $g === 0$).
+  - `shared_genres` ($u.\text{genres} \cap v.\text{genres}$) qualifies $C_g$ (`"exact_and_subtoken_match"`, `"subtoken_lexical_match"`, or `"none"`).
+
 - **2-Hop Multi-Path Harmonic Relevance:**
   - $A_{2\text{hop}}(u, z) = \text{round}\left(1.0 - \prod_{m \in M(u, z)} (1.0 - 0.70 \cdot W(u, m) \cdot W(m, z)), \ 4\right)$, sorted descending by $A_{2\text{hop}}$, then descending by $|M(u, z)|$, then ascending by $z.\text{name}$ (top 8).
 
@@ -244,4 +260,6 @@ export const DEFAULT_SPACE_PREFERENCES = {
 | -------- | ------ | --------- |
 | 3D Cluster Separation Algorithm | 3D Fibonacci sphere centroids scaled by Louvain modularity $Q$ ($R_{\text{galaxy}} = 220 \cdot (1 + 1.8 \max(0, Q))$) | Distributes star systems evenly in 3D space without manual coordinates and reflects actual community modularity |
 | 2-Hop Indirect Connection Ranking | Multi-path harmonic aggregation $A_{2\text{hop}}(u, z) = 1 - \prod_m (1 - 0.70 W_{um} W_{mz})$ | Rewards 2-hop planets reachable via multiple strong intermediate bridges while keeping scores strictly in $[0, 1]$ |
-| Specialist Role Alignment | `Engenheiro de IA e Agentes` owns `T1` (math/explainability model); `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade` owns all CSS, 3D WebGL, and React components (`T4`, `T6`, `T7`, `T8`, `T9`); `Desenvolvedor Back-end + APIs e Integrações` owns `T3` and `T5` | Aligns 100% with the configured roles and limits in Maestri while preserving wave parallelism and independent review |
+| Specialist Role Alignment | `Engenheiro de IA e Agentes` owns `T1, T12` (math/explainability model & linear listening sizing); `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade` owns all CSS, 3D WebGL, and React components (`T4`, `T6`, `T7`, `T8`, `T9`, `T11`, `T14`); `Desenvolvedor Back-end + APIs e Integrações` owns `T3, T5, T13` | Aligns 100% with the configured roles and limits in Maestri while preserving wave parallelism and independent review |
+| Graphify-Inspired 3D Knowledge Graph & Linear Listening Sizing (AD-009) | Shift from speculative planetary elements to clean Graphify-inspired 3D nodes on `#050508` dark canvas with strictly linear listening sizing ($D_i = D_{\max} \cdot (L_i / L_{\max})$, $R_i = D_i / 2$) | Eliminates cosmic visual noise, ensures mathematical proportionality ($1000$ vs $500 \implies 2.0\times$), separates artist/genre maximum scales ($14.0$ vs $12.0$), deduplicates genre play counts, and applies safe non-distorting fallback for $L_i \le 0$ |
+| Genre Graph Cohesion & Hover Camera Stability (AD-010) | Auto-switch to `bipartite` on genre filter, project `genre-genre` weighted edges in `filterSpaceGraph`, preserve full neighborhood in Inspector, and guard `zoomToFit` with `hasInitialFitRef` alongside stable callback refs | Prevents empty/disconnected genre subgraphs, guarantees complete contextual navigation, and fixes the camera zoom-loss bug on node hover |

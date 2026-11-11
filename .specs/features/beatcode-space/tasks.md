@@ -72,7 +72,14 @@ Tasks are organized into 3 dependency waves (DAG) to maximize concurrent executi
 
 - **T9** (`frontend/components/SpotifyConstellationGraph.jsx`) — Owner: `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade` (Depends on: `T2, T3, T6, T7, T8`)
 - **T10** (`frontend/tests/spaceGraphModel.test.mjs`) — Owner: `QA` (Depends on: `T1, T2, T6, T9`)
-- **Post-T10 Independent Verification** — Owner: `Revisor de Código + Segurança + DevOps` (Verifier) + `QA` (`check_proofs.py` & `validate_verification.py`)
+
+### Phase 4: Wave 4 — Knowledge Graph Evolution & Interaction Hardening (Graphify Delta)
+
+- **T11** (`frontend/components/space/PlanetaryRenderer.js` + `frontend/app/globals.css`) — Owner: `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade` (Depends on: `T6, T9`)
+- **T12** (`frontend/lib/spaceGraphModel.js`) — Owner: `Engenheiro de IA e Agentes` (Depends on: `T1`)
+- **T13** (`frontend/lib/spaceGraphModel.js` + `frontend/components/space/SpaceHudControls.jsx` + `frontend/components/space/SpaceInspectorPanel.jsx`) — Owner: `Desenvolvedor Back-end + APIs e Integrações` (Depends on: `T1, T7, T8, T9`)
+- **T14** (`frontend/components/SpotifyConstellationGraph.jsx`) — Owner: `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade` (Depends on: `T9`)
+- **Post-Wave Verification** — Owner: `Revisor de Código + Segurança + DevOps` (Verifier) + `QA` (`check_proofs.py` & `validate_verification.py`)
 
 ```
 T1 -> T6
@@ -90,6 +97,14 @@ T1 -> T10
 T2 -> T10
 T6 -> T10
 T9 -> T10
+T6 -> T11
+T9 -> T11
+T1 -> T12
+T1 -> T13
+T7 -> T13
+T8 -> T13
+T9 -> T13
+T9 -> T14
 ```
 
 ---
@@ -307,6 +322,94 @@ T9 -> T10
 
 ---
 
+### Phase 4: Wave 4 — Knowledge Graph Evolution & Interaction Hardening (Graphify Delta)
+
+#### T11: Implement Graphify-inspired 3D Knowledge Graph visual model and clean `#050508` dark canvas
+
+**What**: Refactor the 3D visual presentation to align with Graphify: remove decorative planetary atmospheric halos and Saturn-like rings, eliminate procedural background starfield/dust particles, enforce discreet calm `#050508` background canvas, render clean 3D node meshes (spheres with high-definition avatars and clean polyhedral hubs for genres), and render subtle convex hulls for active knowledge clusters.
+**Where**: `frontend/components/space/PlanetaryRenderer.js` & `frontend/app/globals.css`
+**Owner**: `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade`
+**Depends on**: T6, T9
+**Reuses**: Three.js geometry/material caching and Graphify visual design guidelines
+**Requirement**: SPACE-01, SPACE-02, SPACE-10
+
+**Done when**:
+
+- [ ] 3D canvas renders with background `#050508` without starry particle clutter
+- [ ] Node meshes render clean spheres and polyhedra without decorative planetary halos or orbital rings
+- [ ] Gate check passes: `npm --prefix frontend run lint`
+
+**Tests**: integration
+**Gate**: build
+**Commit**: `feat(knowledge-graph): implementa modelo visual 3D inspirado no Graphify e fundo discreto`
+
+---
+
+#### T12: Implement deterministic linear listening sizing and deduplicated genre aggregation in domain model
+
+**What**: Update `frontend/lib/spaceGraphModel.js` with the strictly linear listening sizing formula $D_i = D_{\max} \cdot (L_i / L_{\max})$, $R_i = D_i / 2$, verifying exact ratios ($1000$ vs $500 \implies 2.0\times$, $1000$ vs $750 \implies 1.3333\times$, $1500$ vs $1000 \implies 1.5\times$), enforcing separate scales ($D_{\max,\text{artist}} = 28.0, R_{\max,\text{artist}} = 14.0$ vs $D_{\max,\text{genre}} = 24.0, R_{\max,\text{genre}} = 12.0$), aggregating genre listening volume ($L_g$) by deduplicating track play counts across unique songs, and assigning safe fallback $R_{\min,\text{safe}} = 2.0$ with `isFallbackListening = true` for missing/invalid $L_i \le 0$ or `NaN` without distorting the positive linear ratios.
+**Where**: `frontend/lib/spaceGraphModel.js`
+**Owner**: `Engenheiro de IA e Agentes`
+**Depends on**: T1
+**Reuses**: Mathematical specification from `spec.md` Section 2
+**Requirement**: SPACE-01, SPACE-06
+
+**Done when**:
+
+- [ ] `computePlanetVisualProps` computes strictly linear radii $R_i$ from $L_i$ with verified ratios ($2.0\times, 1.3333\times, 1.5\times$)
+- [ ] Genre play counts $L_g$ deduplicate multi-artist tracks in the same genre
+- [ ] Nodes with $L_i \le 0$ receive `isFallbackListening: true` and $R_{\min,\text{safe}} = 2.0$ without offsetting positive linear nodes
+- [ ] Gate check passes: `node --test frontend/tests/spaceGraphModel.test.mjs`
+
+**Tests**: unit
+**Gate**: quick
+**Commit**: `feat(sizing-model): implementa dimensionamento linear as escutas e agregacao deduplicada de generos`
+
+---
+
+#### T13: Implement genre graph fixes: auto-bipartite switching, genre-genre projections, and full neighborhood
+
+**What**: Implement cohesive genre exploration: update `SpaceHudControls.jsx` and `SpotifyConstellationGraph.jsx` to automatically switch `graphMode` to `"bipartite"` whenever the user filters by `genre`, project weighted `genre-genre` edges ($W(g_1, g_2) = \frac{|A(g_1) \cap A(g_2)|}{|A(g_1) \cup A(g_2)|}$) in `filterSpaceGraph`, and preserve the complete bipartite neighborhood (all incident artists and connection weights) in `SpaceInspectorPanel.jsx`.
+**Where**: `frontend/lib/spaceGraphModel.js`, `frontend/components/space/SpaceHudControls.jsx`, `frontend/components/space/SpaceInspectorPanel.jsx`
+**Owner**: `Desenvolvedor Back-end + APIs e Integrações`
+**Depends on**: T1, T7, T8, T9
+**Reuses**: Domain graph filtering and inspector components
+**Requirement**: SPACE-01, SPACE-06, SPACE-07
+
+**Done when**:
+
+- [ ] Selecting `genre` filter automatically comutes graph mode to `bipartite`
+- [ ] `filterSpaceGraph` projects `genre-genre` edges based on shared artists Jaccard similarity
+- [ ] `SpaceInspectorPanel` displays complete bipartite neighborhood without truncated connections
+- [ ] Gate check passes: `node --test frontend/tests/spaceGraphModel.test.mjs && npm --prefix frontend run lint`
+
+**Tests**: integration
+**Gate**: quick
+**Commit**: `feat(genre-graph): adiciona comutacao automatica bipartida, projecao genre-genre e vizinhanca completa`
+
+---
+
+#### T14: Implement hover camera zoom stability with `hasInitialFitRef` and stable callback refs
+
+**What**: Eliminate camera zoom loss and unexpected resets when hovering over nodes in `frontend/components/SpotifyConstellationGraph.jsx`. Implement `hasInitialFitRef` to ensure `zoomToFit` inside `onEngineStop` executes once and only once upon initial load, and wrap hover/click handlers (`onNodeHover`, `onLinkHover`, `onNodeClick`) in stable refs (`useRef` / `useCallback`) so `<ForceGraph3D>` props do not re-instantiate or trigger canvas re-centering on hover.
+**Where**: `frontend/components/SpotifyConstellationGraph.jsx`
+**Owner**: `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade`
+**Depends on**: T9
+**Reuses**: Component lifecycle hooks and ForceGraph3D integration
+**Requirement**: SPACE-03, SPACE-04, SPACE-09
+
+**Done when**:
+
+- [ ] Hovering over nodes in 3D mode maintains manual camera zoom, pan, and rotation without resetting
+- [ ] `hasInitialFitRef` restricts `zoomToFit` exclusively to the first initial graph stabilization
+- [ ] Gate check passes: `npm --prefix frontend run lint && npm --prefix frontend run build`
+
+**Tests**: integration
+**Gate**: build
+**Commit**: `fix(camera-stability): corrige perda de zoom no hover com hasInitialFitRef e refs estaveis`
+
+---
+
 ## Checks
 
 **C1** - Unipartite artist nodes compute deterministic 3D planet radius in `[3.50, 14.00]`, atmospheric halo radiation $\Phi(u) = 0.70\sqrt{C_B} + 0.30C_D$, orbital ring eligibility ($\text{Div}_{\text{cluster}} \ge 0.30$ or `bridge_artist`), and safe fallback defaults for missing/`NaN` attributes (SPACE-01, AC 1, AC 4)
@@ -354,6 +457,18 @@ Proof: run backend | test_graph_endpoint_delivers_connected_artists_count_and_pr
 **C15** - Browser E2E verification validates live BeatCode Space 3D/2D rendering, demo mode entry, planet selection, 360° camera/HUD controls, contextual Inspector provenance badges (`[DADO SPOTIFY]` vs `[INFERÊNCIA BEATCODE]`), and 1-hop/2-hop navigation (SPACE-01, SPACE-03, SPACE-04, SPACE-06, SPACE-09)
 Proof: run e2e | E2E_BROWSER_VERIFIED: 3D/2D stage, planet selection, camera HUD, and Inspector verified in headless browser
 
+**C16** - Deterministic linear listening sizing computes strictly linear node radii ($D_i = D_{\max} \cdot (L_i / L_{\max})$, $R_i = D_i / 2$) verifying $1000$ vs $500 \implies 2.0\times$, $1000$ vs $750 \implies 1.3333\times$ ($4/3$), $1500$ vs $1000 \implies 1.5\times$, separate scales for artists ($D_{\max}=28.0, R_{\max}=14.0$) and genres ($D_{\max}=24.0, R_{\max}=12.0$), deduplicated genre play count aggregation ($L_g$), and safe fallback $R_{\min,\text{safe}} = 2.0$ with `isFallbackListening: true` for $L_i \le 0$ / `NaN` without corrupting positive ratios (SPACE-01, AC 1, AC 2)
+Proof: run frontend | ok 16 - SPACE-01 AC1/AC2: computePlanetVisualProps enforces linear listening sizing, separate scales, deduplicated genre listening, and safe fallback
+
+**C17** - Graphify-inspired clean 3D knowledge graph visual model renders nodes cleanly on `#050508` dark canvas, with convex knowledge clusters, without decorative planetary rings or atmospheric halos, and with explicit visual explainability (SPACE-01, SPACE-02)
+Proof: run frontend | ok 17 - SPACE-01/02: clean 3D knowledge graph renders on #050508 canvas with convex knowledge clusters and zero planetary rings/halos
+
+**C18** - Genre graph exploration guarantees cohesion by automatically switching to `bipartite` mode when filtering by `genre`, generating projected `genre-genre` weighted edges in `filterSpaceGraph`, and preserving full bipartite neighborhood in the analytical inspector (SPACE-01, SPACE-06, SPACE-07)
+Proof: run frontend | ok 18 - SPACE-01/06/07: genre graph auto-switches to bipartite, projects genre-genre edges, and preserves full neighborhood in inspector
+
+**C19** - Hover camera zoom stability ensures node hover does not trigger `zoomToFit` or camera matrix reset, with `hasInitialFitRef` preventing re-fitting on subsequent `onEngineStop` triggers and stable callback refs preventing component remounts (SPACE-03, SPACE-04)
+Proof: run frontend | ok 19 - SPACE-03/04: hover over 3D node maintains camera zoom and position without triggering zoomToFit or matrix reset
+
 ---
 
 ## Handoff
@@ -378,6 +493,10 @@ Proof: run e2e | E2E_BROWSER_VERIFIED: 3D/2D stage, planet selection, camera HUD
 | T8: `frontend/components/space/SpaceInspectorPanel.jsx` | 1 component | ✅ Granular |
 | T9: `frontend/components/SpotifyConstellationGraph.jsx` | 1 component | ✅ Granular |
 | T10: `frontend/tests/spaceGraphModel.test.mjs` | 1 test suite | ✅ Granular |
+| T11: `frontend/components/space/PlanetaryRenderer.js` (+ `frontend/app/globals.css`) | 1 visual component slice | ✅ Granular |
+| T12: `frontend/lib/spaceGraphModel.js` | 1 domain math slice | ✅ Granular |
+| T13: `frontend/lib/spaceGraphModel.js` (+ `SpaceHudControls.jsx` & `SpaceInspectorPanel.jsx`) | 1 genre feature slice | ✅ Granular |
+| T14: `frontend/components/SpotifyConstellationGraph.jsx` | 1 camera stability slice | ✅ Granular |
 
 ---
 
@@ -395,6 +514,10 @@ Proof: run e2e | E2E_BROWSER_VERIFIED: 3D/2D stage, planet selection, camera HUD
 | T8 | T1, T4 | T1 -> T8, T4 -> T8 | ✅ Match |
 | T9 | T2, T3, T6, T7, T8 | T2 -> T9, T3 -> T9, T6 -> T9, T7 -> T9, T8 -> T9 | ✅ Match |
 | T10 | T1, T2, T6, T9 | T1 -> T10, T2 -> T10, T6 -> T10, T9 -> T10 | ✅ Match |
+| T11 | T6, T9 | T6 -> T11, T9 -> T11 | ✅ Match |
+| T12 | T1 | T1 -> T12 | ✅ Match |
+| T13 | T1, T7, T8, T9 | T1 -> T13, T7 -> T13, T8 -> T13, T9 -> T13 | ✅ Match |
+| T14 | T9 | T9 -> T14 | ✅ Match |
 
 ---
 
@@ -412,3 +535,7 @@ Proof: run e2e | E2E_BROWSER_VERIFIED: 3D/2D stage, planet selection, camera HUD
 | T8 | 3D/2D UI, WebGL Renderer & Camera/Inspector Integration | integration | integration | ✅ OK |
 | T9 | 3D/2D UI, WebGL Renderer & Camera/Inspector Integration | integration | integration | ✅ OK |
 | T10 | 3D/2D UI, WebGL Renderer & Camera/Inspector Integration | integration | integration | ✅ OK |
+| T11 | 3D/2D UI, WebGL Renderer & Camera/Inspector Integration | integration | integration | ✅ OK |
+| T12 | Spatial Domain, Math & Explainability | unit | unit | ✅ OK |
+| T13 | 3D/2D UI, WebGL Renderer & Camera/Inspector Integration | integration | integration | ✅ OK |
+| T14 | 3D/2D UI, WebGL Renderer & Camera/Inspector Integration | integration | integration | ✅ OK |

@@ -15,10 +15,15 @@ import {
   DEFAULT_COLOR,
   DEFAULT_MIN_EDGE_WEIGHT,
   CLUSTER_PALETTE,
+  MAX_ARTIST_DIMENSION,
+  MAX_ARTIST_RADIUS,
+  MAX_GENRE_DIMENSION,
+  MAX_GENRE_RADIUS,
   hashString,
   escapeHtml,
   sanitizeNodeColor,
   sanitizeNodeName,
+  computeListeningProportionalDimensions,
   computePlanetVisualProps,
   computeClusterCentroids,
   decomposeEdgeWeight,
@@ -30,6 +35,11 @@ import {
   computeMotionConfig,
   resolveWebGLFallbackState
 } from "../lib/spaceGraphModel.js";
+
+import {
+  createPlanetObject3D,
+  createCosmicStarfield
+} from "../components/space/PlanetaryRenderer.js";
 
 import {
   SPACE_PREFS_STORAGE_KEY,
@@ -923,4 +933,217 @@ test("SPACE-03/04/06: integrated renderer, camera controller, and inspector flow
   const resetTarget = resolveCameraFlightTarget({ action: "overview" });
   assert.equal(resetTarget.depth, "universe");
   assert.equal(deriveExplorationDepth({ selectedNode: null }).code, "universe");
+});
+
+test("SPACE-01 AC1/AC2: computePlanetVisualProps enforces linear listening sizing, separate scales, deduplicated genre listening, and safe fallback", () => {
+  // 1. Strict linear proportionality: D_i = D_max * (L_i / L_max)
+  const nodes = [
+    { id: "a16", name: "Artist 16", node_type: "artist", listening_count: 1500 },
+    { id: "a1", name: "Artist 1", node_type: "artist", listening_count: 1000 },
+    { id: "a4", name: "Artist 4", node_type: "artist", listening_count: 750 },
+    { id: "a9", name: "Artist 9", node_type: "artist", listening_count: 500 }
+  ];
+
+  const propDims = computeListeningProportionalDimensions(nodes);
+  const d16 = propDims.get("a16").dimension;
+  const d1 = propDims.get("a1").dimension;
+  const d4 = propDims.get("a4").dimension;
+  const d9 = propDims.get("a9").dimension;
+
+  const r1 = propDims.get("a1").radius;
+  const r9 = propDims.get("a9").radius;
+
+  // 1000 vs 500 => D_A / D_B === 2.0 and R_A / R_B === 2.0
+  assert.equal(d1 / d9, 2.0);
+  assert.equal(r1 / r9, 2.0);
+
+  // 1000 vs 750 => Math.abs(D_A / D_B - 4/3) < 1e-12 (33.33% bigger)
+  assert.ok(Math.abs(d1 / d4 - 4 / 3) < 1e-12);
+
+  // 1500 vs 1000 => D_A / D_B === 1.5 (50% bigger)
+  assert.equal(d16 / d1, 1.5);
+
+  // Proportional verification also via computePlanetVisualProps with metadata max_artist_listening_count
+  const meta = { max_artist_listening_count: 1500 };
+  const vp16 = computePlanetVisualProps(nodes[0], meta, "artists");
+  const vp1 = computePlanetVisualProps(nodes[1], meta, "artists");
+  const vp4 = computePlanetVisualProps(nodes[2], meta, "artists");
+  const vp9 = computePlanetVisualProps(nodes[3], meta, "artists");
+
+  assert.equal(vp1.dimension / vp9.dimension, 2.0);
+  assert.equal(vp1.radius / vp9.radius, 2.0);
+  assert.ok(Math.abs(vp1.dimension / vp4.dimension - 4 / 3) < 1e-12);
+  assert.equal(vp16.dimension / vp1.dimension, 1.5);
+
+  // 2. Deterministic descending sort by listening_count with tie-breaking by name ascending
+  const tiedNodes = [
+    { id: "t_b", name: "Bravo Artist", node_type: "artist", listening_count: 800 },
+    { id: "t_a", name: "Alpha Artist", node_type: "artist", listening_count: 800 },
+    { id: "t_top", name: "Zenith Artist", node_type: "artist", listening_count: 1200 }
+  ];
+  const tiedDims = computeListeningProportionalDimensions(tiedNodes);
+  assert.equal(tiedDims.get("t_top").listeningRank, 1);
+  assert.equal(tiedDims.get("t_a").listeningRank, 2); // 'Alpha' comes before 'Bravo'
+  assert.equal(tiedDims.get("t_b").listeningRank, 3);
+
+  // 3. Robust handling of missing, zero, negative, or NaN values
+  const edgeNodes = [
+    { id: "zero_l", name: "Zero Plays", node_type: "artist", listening_count: 0 },
+    { id: "neg_l", name: "Negative Plays", node_type: "artist", listening_count: -10 },
+    { id: "nan_l", name: "NaN Plays", node_type: "artist", listening_count: NaN },
+    { id: "null_l", name: "Null Plays", node_type: "artist", listening_count: null }
+  ];
+  const edgeDims = computeListeningProportionalDimensions(edgeNodes);
+  for (const n of edgeNodes) {
+    const item = edgeDims.get(n.id);
+    assert.equal(item.isFallbackListening, true);
+    assert.equal(item.listeningRatio, 0);
+    assert.ok(Number.isFinite(item.radius));
+  }
+  const invVp = computePlanetVisualProps(edgeNodes[0], {}, "artists");
+  assert.equal(invVp.isFallbackListening, true);
+  assert.equal(invVp.listeningRatio, 0);
+  assert.ok(Number.isFinite(invVp.radius) && invVp.radius > 0);
+
+  // 4. Independent dimension scaling for artists vs genres
+  assert.equal(MAX_ARTIST_DIMENSION, 28.0);
+  assert.equal(MAX_GENRE_DIMENSION, 24.0);
+
+  const mixedNodes = [
+    { id: "top_art", name: "Top Art", node_type: "artist", listening_count: 1000 },
+    { id: "top_gen", name: "Top Gen", node_type: "genre", listening_count: 1000 }
+  ];
+  const mixedDims = computeListeningProportionalDimensions(mixedNodes);
+  assert.equal(mixedDims.get("top_art").dimension, MAX_ARTIST_DIMENSION);
+  assert.equal(mixedDims.get("top_art").radius, MAX_ARTIST_DIMENSION / 2.0);
+  assert.equal(mixedDims.get("top_gen").dimension, MAX_GENRE_DIMENSION);
+  assert.equal(mixedDims.get("top_gen").radius, MAX_GENRE_DIMENSION / 2.0);
+});
+
+test("SPACE-01/02: clean 3D knowledge graph renders on #050508 canvas with convex knowledge clusters and zero planetary rings/halos", () => {
+  // 1. Artist node: creates clean 3D sphere with exact radius and invisible hit-sphere
+  const artistNode = {
+    id: "artist_graphify_1",
+    name: "Clean Sphere Artist",
+    node_type: "artist",
+    listening_count: 1000,
+    proportionalRadius: 10.0,
+    proportionalDimension: 20.0
+  };
+  const artistVp = {
+    radius: 10.0,
+    nodeType: "artist",
+    geometryType: "planet",
+    color: "#1DB954"
+  };
+  const artistObject = createPlanetObject3D(artistNode, artistVp);
+  assert.ok(artistObject instanceof THREE.Group);
+
+  const artistPrimaryMesh = artistObject.children.find((c) => c.userData?.isPrimaryNodeMesh);
+  assert.ok(artistPrimaryMesh, "Artist primary mesh must be present");
+  assert.ok(artistPrimaryMesh.geometry instanceof THREE.SphereGeometry);
+  assert.equal(artistPrimaryMesh.userData.radius, 10.0);
+
+  const artistHitSphere = artistObject.children.find((c) => c.userData?.isHitSphere);
+  assert.ok(artistHitSphere, "Artist invisible hit-sphere must be present");
+  assert.ok(artistHitSphere.userData.hitRadius >= 4.5);
+  assert.equal(artistHitSphere.material.opacity, 0);
+  assert.equal(artistHitSphere.material.transparent, true);
+
+  const artistSprite = artistObject.children.find((c) => c instanceof THREE.Sprite || c.userData?.isLabelSprite);
+  assert.ok(artistSprite, "Artist label sprite must be attached");
+  assert.ok(artistSprite.userData?.subtitle?.includes("1000 escutas"));
+
+  // 2. Genre node: creates clean 3D octahedron with exact radius and hit-sphere
+  const genreNode = {
+    id: "genre_graphify_1",
+    name: "Clean Octahedron Genre",
+    node_type: "genre",
+    listening_count: 600,
+    proportionalRadius: 6.0,
+    proportionalDimension: 12.0
+  };
+  const genreVp = {
+    radius: 6.0,
+    nodeType: "genre",
+    geometryType: "star_core",
+    color: "#38BDF8"
+  };
+  const genreObject = createPlanetObject3D(genreNode, genreVp);
+  assert.ok(genreObject instanceof THREE.Group);
+
+  const genrePrimaryMesh = genreObject.children.find((c) => c.userData?.isPrimaryNodeMesh);
+  assert.ok(genrePrimaryMesh, "Genre primary mesh must be present");
+  assert.ok(genrePrimaryMesh.geometry instanceof THREE.OctahedronGeometry);
+  assert.equal(genrePrimaryMesh.userData.radius, 6.0);
+
+  const genreHitSphere = genreObject.children.find((c) => c.userData?.isHitSphere);
+  assert.ok(genreHitSphere, "Genre invisible hit-sphere must be present");
+  assert.ok(genreHitSphere.userData.hitRadius >= 4.5);
+
+  // 3. Cosmic Starfield: clean empty group without star particles (children.length === 0)
+  const starfield = createCosmicStarfield(500, 1400);
+  assert.ok(starfield instanceof THREE.Group);
+  assert.equal(starfield.children.length, 0);
+});
+
+test("SPACE-01/06/07: genre graph auto-switches to bipartite, projects genre-genre edges, and preserves full neighborhood in inspector", () => {
+  // 1. filterSpaceGraph with nodeTypeFilter === 'genre' projects genre-genre edges
+  const bipartiteGraph = {
+    nodes: [
+      { id: "art_1", name: "Daft Punk", node_type: "artist", cluster_id: 0 },
+      { id: "art_2", name: "Justice", node_type: "artist", cluster_id: 0 },
+      { id: "art_3", name: "Phoenix", node_type: "artist", cluster_id: 0 },
+      { id: "gen_1", name: "french house", node_type: "genre", cluster_id: 0 },
+      { id: "gen_2", name: "electro", node_type: "genre", cluster_id: 0 }
+    ],
+    links: [
+      { source: "art_1", target: "gen_1", weight: 0.85, link_type: "artist-genre" },
+      { source: "art_1", target: "gen_2", weight: 0.70, link_type: "artist-genre" },
+      { source: "art_2", target: "gen_1", weight: 0.65, link_type: "artist-genre" },
+      { source: "art_3", target: "gen_2", weight: 0.50, link_type: "artist-genre" }
+    ]
+  };
+
+  const genreFiltered = filterSpaceGraph(bipartiteGraph, {
+    nodeTypeFilter: "genre",
+    minEdgeWeight: 0.05
+  });
+
+  assert.equal(genreFiltered.nodes.length, 2);
+  assert.ok(genreFiltered.nodes.every((n) => n.node_type === "genre"));
+  assert.ok(genreFiltered.links.length > 0, "Genre-filtered view must project genre-genre links");
+  assert.ok(
+    genreFiltered.links.every((l) => l.link_type === "genre-genre"),
+    "All links in genre-only view must be of type genre-genre"
+  );
+  assert.ok(
+    genreFiltered.links.some(
+      (l) =>
+        (l.source === "gen_1" && l.target === "gen_2") ||
+        (l.source === "gen_2" && l.target === "gen_1")
+    )
+  );
+
+  // 2. computeNodeNeighborhood with full bipartite graph preserves connected artists
+  const genreNeighborhood = computeNodeNeighborhood(
+    "gen_1",
+    genreFiltered,
+    "bipartite",
+    bipartiteGraph
+  );
+
+  assert.ok(
+    genreNeighborhood.connectedArtists.length >= 2,
+    "connectedArtists must contain artists sharing gen_1"
+  );
+  assert.ok(genreNeighborhood.connectedArtists.some((ca) => ca.nodeId === "art_1"));
+  assert.ok(genreNeighborhood.connectedArtists.some((ca) => ca.nodeId === "art_2"));
+  assert.ok(
+    genreNeighborhood.directConnections.length > 0,
+    "directConnections must be populated for inspector"
+  );
+  assert.ok(
+    genreNeighborhood.directConnections.some((dc) => dc.nodeId === "art_1" || dc.nodeId === "art_2")
+  );
 });

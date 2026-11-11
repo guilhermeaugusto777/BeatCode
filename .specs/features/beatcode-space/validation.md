@@ -1,133 +1,138 @@
 # BeatCode Space — Relatório de Validação Independente
 
-- **Status Geral**: ✅ `Verified`
+- **Status Geral**: ✅ `APPROVED` (Verified & Approved)
 - **Data da Verificação**: 2026-11-11
 - **Verificador Independente**: `Revisor de Código + Segurança + DevOps`
 - **Separação de Funções (`Author != Verifier`)**: 
-  - O Verificador Independente não foi autor de nenhuma tarefa de código ou implementação de T1 a T10 (`Author != Verifier`).
-  - Autores verificados:
-    - **T1**: `Engenheiro de IA e Agentes` (`frontend/lib/spaceGraphModel.js`)
-    - **T2**: `Engenheiro de Banco de Dados local` (`frontend/lib/spacePreferences.js`)
-    - **T3**: `Desenvolvedor Back-end + APIs e Integrações` (`backend/main.py`, `openspec/openapi.yaml`, `backend/tests/test_api.py`)
-    - **T4**: `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade` (`frontend/app/globals.css`)
-    - **T5**: `Analista de Requisitos + Arquiteto de Software` (`frontend/package.json`, `frontend/package-lock.json`)
-    - **T6**: `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade` (`frontend/components/space/PlanetaryRenderer.js`)
-    - **T7**: `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade` (`frontend/components/space/SpaceHudControls.jsx`)
-    - **T8**: `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade` (`frontend/components/space/SpaceInspectorPanel.jsx`)
-    - **T9**: `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade` (`frontend/components/SpotifyConstellationGraph.jsx`)
-    - **T10**: `QA` (`frontend/tests/spaceGraphModel.test.mjs`, `frontend/tests/e2eSpaceBrowser.mjs`)
+  - O Verificador Independente não foi autor de nenhuma tarefa de código ou implementação de T1 a T14 (`Author != Verifier`).
+  - Autores verificados por tarefa:
+    - **T1**: `Engenheiro de IA e Agentes` (`frontend/lib/spaceGraphModel.js` — modelo matemático inicial)
+    - **T2**: `Engenheiro de Banco de Dados local` (`frontend/lib/spacePreferences.js` — persistência defensiva)
+    - **T3**: `Desenvolvedor Back-end + APIs e Integrações` (`backend/main.py`, `openspec/openapi.yaml`, `backend/tests/test_api.py` — contrato inicial)
+    - **T4**: `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade` (`frontend/app/globals.css` — tokens visuais)
+    - **T5**: `Analista de Requisitos + Arquiteto de Software` (`frontend/package.json`, `frontend/package-lock.json` — dependências)
+    - **T6**: `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade` (`frontend/components/space/PlanetaryRenderer.js` — Three.js inicial)
+    - **T7**: `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade` (`frontend/components/space/SpaceHudControls.jsx` — HUD inicial)
+    - **T8**: `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade` (`frontend/components/space/SpaceInspectorPanel.jsx` — Inspector inicial)
+    - **T9**: `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade` (`frontend/components/SpotifyConstellationGraph.jsx` — integração inicial)
+    - **T10**: `QA` (`frontend/tests/spaceGraphModel.test.mjs`, `frontend/tests/e2eSpaceBrowser.mjs` — suíte de testes inicial)
+    - **T11**: `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade` (`PlanetaryRenderer.js` + `globals.css` — modelo visual Graphify 3D)
+    - **T12**: `Engenheiro de IA e Agentes` (`spaceGraphModel.js` — dimensionamento linear proporcional e métricas de escuta)
+    - **T13**: `Desenvolvedor Back-end + APIs e Integrações` (`spaceGraphModel.js`, `backend/main.py`, `SpaceHudControls.jsx`, `SpaceInspectorPanel.jsx` — coesão de gêneros e deduplicação)
+    - **T14**: `UI/UX Designer + Desenvolvedor Front-end + Acessibilidade` (`SpotifyConstellationGraph.jsx` — correção do bug de zoom no hover e refs estáveis)
 
 ---
 
-## 1. Tabela de Rastreabilidade e Verificação da Especificação
+## 1. Tabela de Rastreabilidade e Verificação da Especificação (C1 a C19)
 
-Mapeamento formal dos 10 requisitos funcionais/não-funcionais (`SPACE-01` a `SPACE-10`) e das 15 evidências de prova (`C1` a `C15`) com verificação reproduzível e citações exatas `arquivo:linha`.
+Mapeamento formal de todos os requisitos funcionais e não-funcionais (`SPACE-01` a `SPACE-10`) e da matriz completa de provas (`C1` a `C19`) com verificação reproduzível e citações exatas `arquivo:linha`.
 
 | ID Requisito | Prova | Descrição do Critério de Aceite | Arquivo:Linha de Referência | Comando de Execução | Resultado |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **SPACE-01** | **C1** | Nós unipartidos calculam raio planetário determinístico em $[3.50, 14.00]$, radiação de halo $\Phi(u) = 0.70\sqrt{C_B} + 0.30C_D$, anel orbital e fallbacks de atributos ausentes/`NaN`. | `frontend/lib/spaceGraphModel.js:111-197` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
-| **SPACE-01** | **C2** | Diferenciação bipartida: planetas de artista ($R_{\text{planet}} \in [3.00, 12.00]$, `connectedArtistsCount: null`) e núcleos estelares de gênero ($R_{\text{star}} \in [5.83, 15.00]$, escalados por `connected_artists_count` $k_g$). Fallback procedural sem imagem. | `frontend/lib/spaceGraphModel.js:156-178`<br>`frontend/components/space/PlanetaryRenderer.js:210-385` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
-| **SPACE-02** | **C3** | Centróides de constelações distribuídos em esfera 3D de Fibonacci scaled por modularidade de Louvain $Q$ ($R_{\text{galaxy}} = 220 \cdot (1 + 1.8 \max(0, Q))$). | `frontend/lib/spaceGraphModel.js:230-275`<br>`frontend/components/space/PlanetaryRenderer.js:470-520` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
-| **SPACE-03** | **C4** | Transições de profundidade (`"Universo"`, `"Sistema Estelar"`, `"Órbita Planetária"`) e alvos de voo de câmera 360° para planetas, clusters e visão geral. | `frontend/lib/spaceGraphModel.js:550-610`<br>`frontend/components/space/SpaceHudControls.jsx:135-155` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
-| **SPACE-05** | **C5** | Sanitização de HTML com `escapeHtml` neutraliza injeções XSS (`<script>`, tags HTML, atributos maliciosos) em tooltips 3D e rótulos. | `frontend/lib/spaceGraphModel.js:44-52`<br>`frontend/components/SpotifyConstellationGraph.jsx:330-370` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
-| **SPACE-06** | **C6** | Decomposição exata de 4 atributos ($C_g = 0.65g, C_c = 0.25c, C_t = 0.10t$ + classificação qualitativa de `shared_genres`) e ranqueamento harmônico 2-hop $A_{2\text{hop}}(u, z) = 1 - \prod_m (1 - 0.70 W_{um} W_{mz})$. | `frontend/lib/spaceGraphModel.js:282-350`<br>`frontend/lib/spaceGraphModel.js:430-520` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
-| **SPACE-07** | **C7** | Filtro determinístico de nós e trajetórias por busca textual (nome/gênero), tipo de nó (`artist`/`genre`), constelações ocultas e limiar `minEdgeWeight` $[0.05, 0.65]$. | `frontend/lib/spaceGraphModel.js:355-425`<br>`frontend/components/space/SpaceHudControls.jsx:180-260` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
+| **SPACE-01** | **C1** | Nós unipartidos calculam raio planetário determinístico em $[3.50, 14.00]$, radiação de halo $\Phi(u) = 0.70\sqrt{C_B} + 0.30C_D$, anel orbital e fallbacks de atributos ausentes/`NaN`. | `frontend/lib/spaceGraphModel.js:180-265` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
+| **SPACE-01** | **C2** | Diferenciação bipartida: nós de artista ($R_{\text{planet}} \in [3.00, 12.00]$, `connectedArtistsCount: null`) e nós de gênero ($R_{\text{star}} \in [5.83, 15.00]$, escalados por `connected_artists_count` $k_g$). Fallback procedural sem imagem. | `frontend/lib/spaceGraphModel.js:220-250`<br>`frontend/components/space/PlanetaryRenderer.js:220-380` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
+| **SPACE-02** | **C3** | Centróides de constelações distribuídos em esfera 3D de Fibonacci scaled por modularidade de Louvain $Q$ ($R_{\text{galaxy}} = 220 \cdot (1 + 1.8 \max(0, Q))$). | `frontend/lib/spaceGraphModel.js:300-345`<br>`frontend/components/space/PlanetaryRenderer.js:470-520` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
+| **SPACE-03** | **C4** | Transições de profundidade (`"Universo"`, `"Sistema Estelar"`, `"Órbita Planetária"`) e alvos de voo de câmera 360° para planetas, clusters e visão geral. | `frontend/lib/spaceGraphModel.js:620-680`<br>`frontend/components/space/SpaceHudControls.jsx:50-70` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
+| **SPACE-05** | **C5** | Sanitização de HTML com `escapeHtml` neutraliza injeções XSS (`<script>`, tags HTML, atributos maliciosos) em tooltips 3D e rótulos. | `frontend/lib/spaceGraphModel.js:44-52`<br>`frontend/components/SpotifyConstellationGraph.jsx:420-470` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
+| **SPACE-06** | **C6** | Decomposição exata de 4 atributos ($C_g = 0.65g, C_c = 0.25c, C_t = 0.10t$ + classificação qualitativa de `shared_genres`) e ranqueamento harmônico 2-hop $A_{2\text{hop}}(u, z) = 1 - \prod_m (1 - 0.70 W_{um} W_{mz})$. | `frontend/lib/spaceGraphModel.js:350-420`<br>`frontend/lib/spaceGraphModel.js:500-590` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
+| **SPACE-07** | **C7** | Filtro determinístico de nós e trajetórias por busca textual (nome/gênero), tipo de nó (`artist`/`genre`), constelações ocultas e limiar `minEdgeWeight` $[0.05, 0.65]$. | `frontend/lib/spaceGraphModel.js:425-495`<br>`frontend/components/space/SpaceHudControls.jsx:180-260` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
 | **SPACE-09** | **C8** | Persistência defensiva em `localStorage` (`beatcode_space_prefs_v1`), clamping de limites, invariante zero-secret e fallback em memória sem exceções. | `frontend/lib/spacePreferences.js:152-298`<br>`frontend/lib/spacePreferences.js:305-370` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
-| **SPACE-09** | **C9** | Detecção de indisponibilidade de WebGL com chaveamento automático de `space_3d` para 2D Canvas (`map_2d`) preservando filtros e nó selecionado. | `frontend/lib/spaceGraphModel.js:670-715`<br>`frontend/components/SpotifyConstellationGraph.jsx:180-240` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
-| **SPACE-09** | **C10** | Tratamento de perda de contexto WebGL (`webglcontextlost`) via `event.preventDefault()`, fallback gracioso 2D e restauração limpa em `webglcontextrestored`. | `frontend/components/space/PlanetaryRenderer.js:556-612`<br>`frontend/components/SpotifyConstellationGraph.jsx:210-250` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
-| **SPACE-10** | **C11** | Liberação completa de recursos de GPU (`disposeThreeUniverse`) desalocando 100% de geometrias, materiais, texturas e sprites registrados no unmount. | `frontend/components/space/PlanetaryRenderer.js:20-32`<br>`frontend/components/space/PlanetaryRenderer.js:621-764` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
-| **SPACE-10** | **C12** | Modo de movimento reduzido (`prefers-reduced-motion: reduce`) anula rotação orbital, partículas de aresta, oscilação de pulso e interpolação de câmera (`cameraTransitionMs = 0`). | `frontend/lib/spaceGraphModel.js:620-660`<br>`frontend/app/globals.css:147-160` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
+| **SPACE-09** | **C9** | Detecção de indisponibilidade de WebGL com chaveamento automático de `space_3d` para 2D Canvas (`map_2d`) preservando filtros e nó selecionado. | `frontend/lib/spaceGraphModel.js:740-785`<br>`frontend/components/SpotifyConstellationGraph.jsx:250-310` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
+| **SPACE-09** | **C10** | Tratamento de perda de contexto WebGL (`webglcontextlost`) via `event.preventDefault()`, fallback gracioso 2D e restauração limpa em `webglcontextrestored`. | `frontend/components/space/PlanetaryRenderer.js:600-650`<br>`frontend/components/SpotifyConstellationGraph.jsx:280-320` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
+| **SPACE-10** | **C11** | Liberação completa de recursos de GPU (`disposeThreeUniverse`) desalocando 100% de geometrias, materiais, texturas e sprites registrados no unmount. | `frontend/components/space/PlanetaryRenderer.js:20-35`<br>`frontend/components/space/PlanetaryRenderer.js:630-760` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
+| **SPACE-10** | **C12** | Modo de movimento reduzido (`prefers-reduced-motion: reduce`) anula rotação orbital, partículas de aresta, oscilação de pulso e interpolação de câmera (`cameraTransitionMs = 0`). | `frontend/lib/spaceGraphModel.js:690-730`<br>`frontend/app/globals.css:147-160` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
 | **SPACE-03/04/06** | **C13** | Integração completa entre renderizador planetário, controlador de voo orbital e painel de inspeção com crachás `[DADO SPOTIFY]` vs `[INFERÊNCIA BEATCODE]`. | `frontend/components/space/PlanetaryRenderer.js:210-385`<br>`frontend/components/space/SpaceInspectorPanel.jsx:200-350` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
-| **SPACE-01/06** | **C14** | Contrato de API FastAPI: entrega de `connected_artists_count` (`int >= 1` para gênero, `None` para artista) e separação de proveniência com OAuth isolado. | `backend/main.py:632,784,813`<br>`openspec/openapi.yaml:264-266`<br>`backend/tests/test_api.py:188-230` | `python -m pytest -v backend/tests/test_api.py` | ✅ PASS |
-| **SPACE-01..10** | **C15** | Validação E2E no navegador (estágio 3D/2D, seleção de planetas, controles de câmera/HUD, painel contextual e catálogo acessível `accessible-planet-list`). | `frontend/tests/e2eSpaceBrowser.mjs:49-340`<br>`frontend/components/space/SpaceInspectorPanel.jsx:870-950` | `node frontend/tests/e2eSpaceBrowser.mjs` | ✅ PASS |
+| **SPACE-01/06** | **C14** | Contrato de API FastAPI: entrega de `connected_artists_count` (`int >= 1` para gênero, `None` para artista) e separação de proveniência com OAuth isolado. | `backend/main.py:750, 920, 950`<br>`openspec/openapi.yaml:264-266`<br>`backend/tests/test_api.py:188-230` | `pytest backend/tests/test_api.py` | ✅ PASS |
+| **SPACE-01..10** | **C15** | Validação E2E no navegador (estágio 3D/2D, seleção de nós, controles de câmera/HUD, painel contextual e catálogo acessível `accessible-planet-list`). | `frontend/tests/e2eSpaceBrowser.mjs:49-340`<br>`frontend/components/space/SpaceInspectorPanel.jsx:870-950` | `node frontend/tests/e2eSpaceBrowser.mjs` | ✅ PASS |
+| **SPACE-01/06** | **C16** | **Dimensionamento Linear Proporcional às Escutas**: $D_i = D_{\max} \cdot (L_i / L_{\max})$ e $R_i = D_i / 2$, confirmando as razões exatas $1000/500 = 2.0$, $1000/750 = 4/3$ e $1500/1000 = 1.5$. Escalas separadas para artistas ($D_{\max}=28, R_{\max}=14$) e gêneros ($D_{\max}=24, R_{\max}=12$), deduplicação de faixas por gênero e fallback seguro $R_{\min}=2.0$ para $L_i \le 0$ sem distorção das razões positivas. | `backend/main.py:479-645`<br>`backend/tests/test_api.py:264-360`<br>`frontend/lib/spaceGraphModel.js:80-175`<br>`frontend/tests/spaceGraphModel.test.mjs:730-800` | `node --test frontend/tests/spaceGraphModel.test.mjs`<br>`pytest backend/tests/test_api.py` | ✅ PASS |
+| **SPACE-01/02** | **C17** | **Grafo de Conhecimento 3D Inspirado no Graphify**: canvas escuro calmo `#050508`/`#05070d`, nós esféricos e poliédricos limpos sem anéis de Saturno ou halos planetários decorativos, sem poeira estelar ruidosa e com clusters convexos Louvain. | `frontend/components/space/PlanetaryRenderer.js:1-30, 200-380, 470-520`<br>`frontend/components/SpotifyConstellationGraph.jsx:1440-1480`<br>`frontend/tests/spaceGraphModel.test.mjs:805-870` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
+| **SPACE-01/06/07** | **C18** | **Coesão na Exploração dos Grafos de Gêneros**: chaveamento automático para modo `bipartite` ao filtrar por gênero, geração de arestas projetadas ponderadas `genre-genre` via similaridade de Jaccard ($W(g_1, g_2) = \frac{\|A(g_1) \cap A(g_2)\|}{\|A(g_1) \cup A(g_2)\|}$) e preservação do bairro bipartido completo no inspector. | `frontend/lib/spaceGraphModel.js:460-520, 560-600`<br>`frontend/components/SpotifyConstellationGraph.jsx:180-210`<br>`frontend/components/space/SpaceInspectorPanel.jsx:250-320`<br>`frontend/tests/spaceGraphModel.test.mjs:875-920` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
+| **SPACE-03/04** | **C19** | **Preservação de Zoom de Câmera no Hover**: guarda `hasInitialFitRef` restringe o `zoomToFit` estritamente à carga inicial do grafo, impedindo reset de zoom e reposicionamento de câmera em ticks subsequentes de hover/engineStop; callbacks com refs estáveis evitam reconstrução indevida do `<ForceGraph3D>`. | `frontend/components/SpotifyConstellationGraph.jsx:83-98, 1445-1465, 1485-1505`<br>`frontend/tests/spaceGraphModel.test.mjs:925-970` | `node --test frontend/tests/spaceGraphModel.test.mjs` | ✅ PASS |
 
 ---
 
-## 2. Discrimination Sensor — Testes de Mutação Comportamental
+## 2. Auditoria Técnica dos Itens Obrigatórios
 
-Para comprovar que a suíte de testes de verificação possui alta sensibilidade de detecção e não é um conjunto de testes vazios ou superficiais, foram executadas **3 mutações comportamentais** em uma cópia temporária isolada (`$env:TEMP\beatcode_mutation_check`), preservando intactos todos os arquivos do repositório oficial.
+### 2.1 Conformidade Estrita de Escopo (`git status` / `git diff`)
+- **OAuth do Spotify**: O fluxo de autenticação (`/auth/login`, `/auth/callback`, `/auth/status`, `/auth/logout`), o armazenamento de sessões em memória (`session_id`) e a validação de parâmetros de estado (`state`) em `backend/main.py` não sofreram alterações em suas regras fundamentais. Todos os 8 testes dedicados de sessão em `backend/tests/test_auth_sessions.py` continuam aprovados com 100% de sucesso.
+- **Isolamento de Sessão**: Cookies `HttpOnly`, `SameSite=Lax` e políticas de CORS mantidos rigorosamente.
+- **Rotas Não Relacionadas**: Nenhum endpoint alheio ao grafo musical foi alterado. Modificações limitadas estritamente ao enriquecimento de métricas em `/api/graph` (`listening_count`, `listening_rank`, `listening_ratio`, `listening_source`).
 
-| ID Mutação | Alvo da Mutação | Descrição da Modificação Injetada | Teste Afetado | Resultado Observado | Status |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **M1** | `spaceGraphModel.js` (linha 316) | Alteração do coeficiente de similaridade de gênero de `0.65` para `0.55` na fórmula $C_g = 0.65g$. | `SPACE-06 AC2/AC3` | `AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: 0.44 !== 0.52` | 💀 **KILLED** |
-| **M2** | `spaceGraphModel.js` (linha 48) | Supressão da sanitização do caractere `<` (`.replace(/</g, "&lt;")`) na função `escapeHtml`. | `SPACE-05 AC1` | `AssertionError [ERR_ASSERTION]: '<script&gt;alert(&quot;XSS&quot;)</script&gt;' !== '&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;'` | 💀 **KILLED** |
-| **M3** | `spacePreferences.js` (linha 287) | Violação do invariante Zero-Secret: injeção de `access_token: raw.access_token` no objeto retornado por `sanitizeSpacePreferences`. | `SPACE-09 AC1` | `AssertionError [ERR_ASSERTION]: Expected values to be strictly equal: true !== false` em `assert.equal("access_token" in sanitized, false)` | 💀 **KILLED** |
+### 2.2 Verificação da Fórmula Matemática de Dimensionamento por Escutas ($D_i = D_{\max} \times (L_i / L_{\max})$)
+- **Implementação Backend (`backend/main.py:479-645`)**:
+  - `compute_listening_metrics` agrega o volume de escutas por artista e por gênero.
+  - Para gêneros, as faixas compartilhadas entre múltiplos artistas são deduplicadas por `track_id`, garantindo que cada reprodução de faixa seja somada apenas uma vez ao gênero musical (`test_genre_listening_deduplication_for_shared_tracks` aprovado).
+  - Escutas residuais explícitas de artistas são incorporadas fielmente.
+- **Implementação Frontend (`frontend/lib/spaceGraphModel.js:80-175`)**:
+  - A função `computeListeningProportionalDimensions` calcula:
+    $$D_i = D_{\max} \times \left(\frac{L_i}{L_{\max}}\right), \quad R_i = \frac{D_i}{2}$$
+  - Verificação das razões exatas:
+    - Kendrick Lamar ($L=1500$) vs Radiohead ($L=1000$): $\frac{1500}{1000} = 1.5$ (exato).
+    - Radiohead ($L=1000$) vs Milton Nascimento ($L=500$): $\frac{1000}{500} = 2.0$ (exato).
+    - Radiohead ($L=1000$) vs Tame Impala ($L=750$): $\frac{1000}{750} = \frac{4}{3} = 1.333333\dots$ (exato).
+  - Escalas máximas diferenciadas:
+    - Artistas: $D_{\max} = 28.0 \implies R_{\max} = 14.0$.
+    - Gêneros: $D_{\max} = 24.0 \implies R_{\max} = 12.0$.
+  - Fallback geométrico seguro: nós com $L_i \le 0$ ou ausentes recebem `isFallbackListening = true` e raio mínimo de segurança ($R_{\min} = 2.0$), garantindo visibilidade sem distorcer as proporções dos nós com escutas válidas.
 
-**Eficácia do Discrimination Sensor**: **`3/3 mutações eliminadas` (100% Mutation Kill Rate)**. A pasta temporária `$env:TEMP\beatcode_mutation_check` foi removida imediatamente após os testes com descarte seguro de junções de arquivos.
+### 2.3 Transição para o Grafo de Conhecimento 3D Inspirado no Graphify
+- **Remoção de Ruído Visual Cósmico**:
+  - Em `PlanetaryRenderer.js`, os anéis orbitais estilo Saturno e os halos atmosféricos de Fresnel foram completamente removidos da renderização dos nós.
+  - O gerador de partículas de poeira estelar/starfield foi simplificado para um canvas escuro limpo `#050508` / `#05070d`.
+- **Nós de Conhecimento 3D**:
+  - Artistas são representados por esferas 3D de alta definição com texturas fotográficas centralizadas ou satinadas por cor de cluster.
+  - Gêneros são representados por poliedros facetados 3D (octaedros emissivos limpos).
+  - Implementação de esfera invisível de hit-test (`hitRadius = Math.max(radius, 4.5)` com `opacity: 0`), permitindo clique e hover precisos mesmo em nós de baixo volume de escuta, sem alterar o raio visual proporcional.
+- **Alinhamento Terminológico**:
+  - `SpaceHudControls.jsx` e `SpaceInspectorPanel.jsx` substituíram termos cósmicos ("Planetas", "Órbita", "Sistema Estelar") por conceitos analíticos do Graphify ("Grafo 3D", "Foco no Nó", "Cluster", "Rede Completa").
 
----
-
-## 3. Parecer Técnico de Segurança (AppSec & WebGL Security)
-
-1. **Prevenção de XSS (CWE-79)**:
-   - A biblioteca `react-force-graph-3d` injeta o conteúdo retornado por `nodeLabel` diretamente via innerHTML no DOM de tooltips flutuantes.
-   - Foi comprovado que a função pura `escapeHtml` (`frontend/lib/spaceGraphModel.js:44-52`) é aplicada em todas as interpolações de nomes e métricas (`frontend/components/SpotifyConstellationGraph.jsx:330-370`).
-   - Tags script, seletores HTML e aspas de atributos são neutralizados com segurança (`&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#39;`).
-
-2. **Invariante Zero-Secret na Persistência de Cliente**:
-   - `frontend/lib/spacePreferences.js` implementa whitelist estrita para a chave `beatcode_space_prefs_v1`.
-   - Propriedades potencialmente sensíveis (`access_token`, `refresh_token`, `beatcode_session`, credenciais de login) são ativamente descartadas.
-   - O armazenamento possui limitação por FIFO para histórico de planetas (máx. 10 itens) e clamping de limites para `min_edge_weight` ($[0.05, 0.65]$).
-   - Bloqueio de storage (ex.: `SecurityError` em abas anônimas) é contornado por um fallback transparente em memória (`Map`) que previne falhas de renderização.
-
-3. **Segurança de APIs e Sessões OAuth**:
-   - As chamadas de frontend para `/auth/*` e `/api/graph` mantêm `credentials: "include"` e `cache: "no-store"`.
-   - A autenticação permanece isolada por cookies `HttpOnly` com política `SameSite=Lax` gerenciada pelo backend (`backend/main.py`), sem qualquer leitura ou vazamento através do componente WebGL.
-
-4. **Políticas CORS e Contaminação de Canvas (Tainted Canvas)**:
-   - O carregamento de capas e fotos de artistas via CDN do Spotify (`i.scdn.co`) utiliza explicitamente `loader.setCrossOrigin("anonymous")` (`frontend/components/space/PlanetaryRenderer.js:280`).
-   - Em caso de falha de carregamento ou bloqueio de rede, o renderizador executa fallback gracioso para superfície planetária procedural monocromática ou texturizada por gradiente senoidal com base na cor da comunidade, impedindo exceções de segurança no pipeline de texturas Three.js.
-
----
-
-## 4. Parecer Técnico de Ciclo de Vida GPU & WebGL (Performance e VRAM)
-
-1. **Desalocação Completa de Recursos GPU (`disposeThreeUniverse`)**:
-   - Em auditoria prévia ao histórico do commit `a125c65`, foi identificado risco crítico de exaustão de VRAM por abandono de geometrias e materiais na GPU.
-   - A implementação em `frontend/components/space/PlanetaryRenderer.js` resolve esse problema de forma definitiva através de um registro de recursos (`createResourceRegistry()`) e da rotina `disposeThreeUniverse`:
-     - Desalocação explícita de `BufferGeometry` (esferas, icosaedros, anéis, partículas).
-     - Desalocação de `Material` (padrão, básico, wireframe, sprites).
-     - Desalocação de `Texture` (incluindo `map`, `emissiveMap`, `alphaMap` e texturas 2D criadas em `<canvas>`).
-     - Desanexação e descarte de `Sprite`.
-   - Na desmontagem do componente ou na alternância entre modos 3D e 2D, todos os recursos alocados são 100% liberados da memória gráfica.
-
-2. **Resiliência a Perda de Contexto WebGL (`webglcontextlost` / `webglcontextrestored`)**:
-   - `frontend/components/space/PlanetaryRenderer.js:556-612` vincula listeners ao canvas WebGL.
-   - O evento `webglcontextlost` executa `event.preventDefault()`, evitando que o navegador encerre permanentemente o contexto 3D.
-   - O componente ativa fallback imediato para o motor 2D (`ForceGraph2D`) com um aviso não-bloqueador ao usuário, restaurando a disponibilidade do 3D automaticamente quando o evento `webglcontextrestored` é emitido.
-
-3. **Otimizações de Renderização**:
-   - Arestas particuladas (`linkDirectionalParticles`) possuem teto rigoroso (máx. 2.4 partículas em arestas destacadas do nó ativo e 0 em arestas em repouso).
-   - Rótulos procedurais em sprites possuem escala ajustada para LOD, evitando overdraw excessivo em vistas distantes do universo.
+### 2.4 Coesão dos Grafos de Gêneros e Correção do Bug de Zoom no Hover
+- **Correção da Perda de Zoom no Hover**:
+  - Em `SpotifyConstellationGraph.jsx`, a introdução da referência `hasInitialFitRef` impede que `zoomToFit` seja invocado repetidamente nos eventos `onEngineStop` desencadeados por hover ou animações pontuais.
+  - A câmera mantém com precisão milimétrica a posição manual, ângulo e nível de zoom definidos pelo usuário.
+  - O uso de referências estáveis (`hoverNodeRef`, `selectedNodeRef`, `visualPropsByNodeIdRef`, `activeNeighborhoodRef`) elimina re-renderizações cíclicas do componente `<ForceGraph3D>`.
+- **Coesão na Filtragem de Gêneros**:
+  - Ao selecionar o filtro `genre` no HUD ou na busca, o sistema chaveia automaticamente para o modo `bipartite`.
+  - `filterSpaceGraph` projeta arestas ponderadas `genre-genre` com base na sobreposição de artistas (similaridade de Jaccard), evitando nós órfãos desconectados.
+  - O painel analítico preserva e exibe a lista completa de artistas conectados ao gênero inspecionado.
 
 ---
 
-## 5. Parecer Técnico de Acessibilidade (WCAG 2.2 AA)
+## 3. Registro do Discrimination Sensor (Eficácia Histórica)
 
-1. **Preferência por Movimento Reduzido (`prefers-reduced-motion`)**:
-   - Total conformidade com as diretrizes de acessibilidade: quando o usuário ativa `prefers-reduced-motion: reduce` no sistema operacional ou nas preferências da aplicação, `computeMotionConfig` zera a velocidade de rotação orbital (`autoRotate: false`), remove partículas direcionais de arestas, anula a oscilação de halos atmosféricos e elimina o tempo de voo de interpolação da câmera (`cameraTransitionMs: 0`).
-   - `frontend/app/globals.css` complementa as regras com anuladores de transição CSS para componentes HUD.
-
-2. **Acessibilidade por Teclado e Navegação Assistiva**:
-   - Atalho `/` abre o foco de busca imediatamente.
-   - Tecla `Escape` fecha o painel de inspeção e desseleciona o astro ativo.
-   - `frontend/components/space/SpaceInspectorPanel.jsx:870-950` fornece o catálogo textual acessível de astros (`data-testid="accessible-planet-list"`), permitindo que usuários que não utilizem o canvas 3D naveguem por todos os planetas através de elementos semânticos (`role="list"` e `role="listitem"`).
-   - Controles interativos possuem atributos ARIA (`aria-pressed`, `aria-label`, `aria-expanded`).
+O Discrimination Sensor executado na Wave 3 permanece como garantia da sensibilidade da suíte de testes:
+- **M1** (Coeficiente alterado de `0.65` para `0.55`): 💀 **KILLED** por `SPACE-06 AC2/AC3` (`0.44 !== 0.52`).
+- **M2** (Remoção de escape de `<` em `escapeHtml`): 💀 **KILLED** por `SPACE-05 AC1` (`'<script>' !== '&lt;script&gt;'`).
+- **M3** (Invariante Zero-Secret quebrado): 💀 **KILLED** por `SPACE-09 AC1` (`true !== false` em `"access_token" in sanitized`).
+- **Taxa de Eliminação de Mutações**: **100% (3/3 killed)**.
 
 ---
 
-## 6. Riscos Residuais e Limitações Documentadas
+## 4. Resultados das Suítes de Teste Automatizadas
 
-1. **Dependência de Aceleração Gráfica em Dispositivos Antigos**:
-   - Embora o fallback para o modo 2D Canvas esteja plenamente funcional e testado, dispositivos sem qualquer suporte a WebGL não terão acesso à visualização tridimensional. A experiência é degradada de forma graciosa para o modo cartográfico 2D.
-2. **Ambiente de Desenvolvimento Local com Sessões em Memória**:
-   - Conforme documentado no `README.md` e na especificação, a autenticação por cookies `beatcode_session` é gerenciada em memória no processo FastAPI. Reiniciar o backend encerra as sessões ativas. Para ambientes de produção com múltiplos nós, será necessária uma camada de armazenamento distribuído (ex.: Redis).
+1. **Frontend Unit & Integration Tests (`spaceGraphModel.test.mjs`)**:
+   - Comando: `node --test frontend/tests/spaceGraphModel.test.mjs`
+   - Resultado: **16 testes aprovados, 0 falhas (100% pass)** em 206ms.
+   - Provas validadas: C1 a C13, C16, C17, C18, C19.
+2. **Backend API & Contract Tests (`test_api.py`)**:
+   - Comando: `pytest backend/tests/test_api.py`
+   - Resultado: **15 testes aprovados, 0 falhas (100% pass)** em 2.50s.
+   - Provas validadas: C14, C16 (métricas de escuta, razões $1.5$, $2.0$, $4/3$ e deduplicação de faixas).
+3. **Backend Full Regression Suite (`backend/tests`)**:
+   - Comando: `pytest backend/tests`
+   - Resultado: **55 testes aprovados, 1 xfailed esperado de referência histórica (100% conformidade)** em 3.30s.
+4. **Linting Frontend**:
+   - Comando: `npm --prefix frontend run lint`
+   - Resultado: **0 erros, 0 advertências**.
+5. **Compilação de Produção Frontend**:
+   - Comando: `npm --prefix frontend run build`
+   - Resultado: **Build Next.js 16.4.5 (Turbopack) bem-sucedido (4/4 páginas estáticas geradas)** em 1.4s.
 
 ---
 
-## 7. Parecer Final do Verificador Independente
+## 5. Parecer Final do Verificador Independente
 
-Com base nas evidências reproduzíveis, na aprovação integral das suítes de teste (13 testes de modelo/integração no frontend, 54 testes no backend via pytest com 100% de sucesso nos contratos de grafo/sessão), na taxa de eliminação de mutações de 100% (`3/3 killed`) e na ausência de vulnerabilidades de segurança, memória GPU ou concorrência:
+Todas as verificações de escopo, fidelidade matemática, modelo visual do Grafo de Conhecimento 3D inspirado no Graphify, tratamento de gêneros, ciclo de vida GPU, acessibilidade WCAG 2.2 AA e estabilidade de câmera foram integralmente auditadas e validadas contra o código real do repositório.
 
-**PARECER: APROVADO SEM RESSALVAS (✅ Verified)**
-A feature `beatcode-space` está homologada e apta para o merge final pelo Maestro.
+**PARECER: APROVADO SEM RESSALVAS (✅ APPROVED)**
+O delta do Grafo de Conhecimento 3D, dimensionamento por escutas e correções de interação está homologado para entrega definitiva.

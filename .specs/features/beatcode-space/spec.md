@@ -1,14 +1,16 @@
-# BeatCode Space — 3D Spatial Graph Universe Specification
+# BeatCode Space — 3D Knowledge Graph Specification (Graphify-Inspired)
 
 ## Problem Statement
 
-BeatCode currently renders the user's Spotify musical graph in `frontend/components/SpotifyConstellationGraph.jsx` exclusively as a flat 2D canvas without a 3D spatial exploration mode, without visual differentiation of planetary bodies, atmospheres, and star-system constellations, without edge weight decomposition (`components`) or 2-hop indirect connection navigation in the inspector, and without cluster visibility controls or a decoupled, unit-testable spatial graph model. Users need an immersive, performant, and accessible 3D space universe experience (**BeatCode Space**) that turns real graph topology into planets, star systems, and luminous trajectories while preserving the 2D fallback and all existing backend contracts.
+BeatCode currently renders the user's Spotify musical graph in `frontend/components/SpotifyConstellationGraph.jsx` as a flat 2D canvas or with an early cosmic/planetary visual metaphor (heavy planetary atmospheres, Saturn-like rings, starry cosmic dust) that introduces visual noise, distracts from analytical comprehension, and lacks proportional fidelity to real listening volume. Furthermore, genre filtering previously led to disconnected subgraphs without auto-bipartite switching, and hover events suffered from an intrusive zoom-loss bug where `zoomToFit` was inadvertently re-triggered. Users need an elegant, high-clarity **3D Knowledge Graph inspired by Graphify** (clean 3D nodes, explainable edges, cohesive knowledge clusters, discreet `#050508` dark canvas, deterministic linear listening sizing, cohesive genre projections, and rock-solid camera stability) that turns real graph topology and listening habits into an authoritative, distraction-free analytical knowledge network.
 
 ## Goals
 
-- [x] Transform the graph visualization into an interactive 3D space universe (`BeatCode Space`) where artists are rendered as planets with deterministic radii, procedural/photo textures, atmospheric halos, and orbital rings, genres (in `bipartite` mode) are rendered as emissive stellar cores, clusters act as star systems/constellations, and edges act as luminous trajectories.
-- [x] Enforce deterministic mathematical formulas with explicit normalization rules and safe fallback defaults for planet radii, atmospheric halo intensity, 3D Fibonacci cluster centroids, 2-hop multi-path relevance, and the 4-attribute connection composition (`0.65g + 0.25c + 0.10t` + qualitative `shared_genres`).
-- [x] Provide smooth 360° camera navigation, zoom, pan, planet focus, star-system cluster centering, one-click return to the full universe overview, contextual planet inspection with explicit provenance badges (`[DADO SPOTIFY]` vs `[INFERÊNCIA BEATCODE]`), and 3D ↔ 2D toggle with WebGL context-loss recovery, GPU resource disposal, and `prefers-reduced-motion` compliance.
+- [x] Transform the visualization into an authoritative **3D Knowledge Graph inspired by Graphify**: clean 3D nodes (spheres with high-definition avatars for artists, clean faceted hubs for genres), explainable luminous edges, cohesive Louvain knowledge clusters, and a distraction-free dark background `#050508` (eliminating decorative planetary halos, Saturn-like rings, and cosmic starfield noise).
+- [x] Enforce a strictly linear, deterministic listening sizing formula ($D_i = D_{\max} \cdot (L_i / L_{\max})$, $R_i = D_i / 2$) with separate scales for artists ($D_{\max}=28.0, R_{\max}=14.0$) and genres ($D_{\max}=24.0, R_{\max}=12.0$), deduplicated track play count aggregation across genres, and safe geometric fallbacks for missing/invalid $L_i$ that preserve the linear ratio of positive nodes.
+- [x] Guarantee cohesive genre exploration with automatic switching to `bipartite` mode on genre filtering, projected `genre-genre` weighted edges ($W(g_1, g_2) = \frac{|A(g_1) \cap A(g_2)|}{|A(g_1) \cup A(g_2)|}$) in `filterSpaceGraph`, and complete bipartite neighborhood inspection in the analytical sidebar.
+- [x] Eliminate the hover zoom-loss bug using `hasInitialFitRef` to restrict `zoomToFit` strictly to the initial load and stable `useRef` callbacks for hover/click without re-creating `<ForceGraph3D>` references.
+- [x] Provide smooth 360° camera navigation, zoom, pan, node centering, cluster framing, contextual inspection with explicit provenance badges (`[DADO SPOTIFY]` vs `[INFERÊNCIA BEATCODE]`), and 3D ↔ 2D toggle with WebGL context-loss recovery, GPU resource disposal, and `prefers-reduced-motion` compliance.
 
 ## Out of Scope
 
@@ -38,32 +40,69 @@ For any node $u$, link $e = (u, v)$, or `metadata` object with missing (`undefin
 - **Connected Artists Count ($k_g$ for genre nodes):** If `u.connected_artists_count` is finite and $\ge 1$, clamp to $[1, 50]$; otherwise infer from incident edges in `links` (minimum $1$). On artist nodes (`node_type === "artist"`), `connected_artists_count` is explicitly `null`.
 - **Node Color & Name:** If `u.color` is missing or not a valid hex color, default to `#1DB954`. If `u.name` is missing or empty, default to `"Desconhecido"`.
 
-### 2. Planetary Radius ($R_{\text{planet}}$) & Genre Stellar Core Radius ($R_{\text{star}}$)
+### 2. Deterministic Linear Listening Sizing Formula ($L_i$) & Node Radii
 
-- **Normalized Composite Mass Index ($M(u) \in [0.0, 1.0]$):**
-  $$M(u) = 0.55 \cdot \hat{S}_{\text{aff}}(u) + 0.30 \cdot \hat{P}_{\text{glob}}(u) + 0.15 \cdot C_D(u)$$
-- **Unipartite Mode (`graph_mode === "artists"`, `node_type === "artist"`):**
-  $$R_{\text{planet}}(u) = \text{round}\left(3.5 + 10.5 \cdot M(u), \ 2\right) \in [3.50, 14.00]$$
-- **Bipartite Mode (`graph_mode === "bipartite"`):**
-  - Artist Planet (`node_type === "artist"`):
-    $$R_{\text{planet}}(u) = \text{round}\left(3.0 + 9.0 \cdot M(u), \ 2\right) \in [3.00, 12.00]$$
-  - Genre Stellar Core (`node_type === "genre"`):
-    $$R_{\text{star}}(g) = \text{round}\left(5.0 + 10.0 \cdot \min\left(1.0, \ \frac{k_g}{12.0}\right), \ 2\right) \in [5.83, 15.00]$$
+Node diameters and radii scale strictly linearly with registered listening counts $L_i$ (stream/scrobble volume or cumulative track play count). This eliminates non-linear distortion and ensures that visual volume matches listening behavior with mathematical rigor:
 
-### 3. Atmospheric Halo Intensity ($\Phi(u), R_{\text{halo}}, \alpha_{\text{halo}}$) & Orbital Rings
+$$D_i = D_{\max} \times \left(\frac{L_i}{L_{\max}}\right), \quad R_i = \frac{D_i}{2}$$
 
-- **Cultural Radiation Index ($\Phi(u) \in [0.0, 1.0]$):**
-  $$\Phi(u) = \text{clamp}\left(0.70 \cdot \sqrt{C_B(u)} + 0.30 \cdot C_D(u), \ 0.0, \ 1.0\right)$$
-- **Halo Outer Radius ($R_{\text{halo}}(u)$):**
-  $$R_{\text{halo}}(u) = \text{round}\left(R_{\text{base}}(u) \cdot (1.15 + 1.25 \cdot \Phi(u)), \ 2\right) \in [1.15 R_{\text{base}}, \ 2.40 R_{\text{base}}]$$
-  where $R_{\text{base}}(u)$ is $R_{\text{planet}}(u)$ or $R_{\text{star}}(u)$.
-- **Halo Opacity ($\alpha_{\text{halo}}(u)$):**
-  $$\alpha_{\text{halo}}(u) = \text{round}\left(0.10 + 0.55 \cdot (\Phi(u))^{0.80}, \ 3\right) \in [0.100, 0.650]$$
-- **Inter-Cluster Diversity & Orbital Ring Eligibility:**
-  $$\text{Div}_{\text{cluster}}(u) = \frac{|\{(u, v) \in E \mid c(u) \neq c(v)\}|}{\max(\deg(u), 1)} \in [0.0, 1.0]$$
-  A node receives an orbital ring (`hasOrbitalRing = true`) if and only if $u.\text{id} === \text{metadata?.bridge\_artist?.id} \ \lor \ \text{Div}_{\text{cluster}}(u) \ge 0.30$, with inner radius $R_{\text{ring\_in}} = \text{round}(1.35 \cdot R_{\text{base}}(u), 2)$ and outer radius $R_{\text{ring\_out}} = \text{round}(2.05 \cdot R_{\text{base}}(u), 2)$.
+#### Mandatory Linear Proportionality Examples
+The visual scale preserves direct linear ratios between any pair of nodes $i, j$ with $L_i, L_j > 0$:
+- **Example 1 ($1000$ vs $500$):**
+  $$\frac{D_{1000}}{D_{500}} = \frac{R_{1000}}{R_{500}} = \frac{1000}{500} = 2.0\times$$
+- **Example 2 ($1000$ vs $750$):**
+  $$\frac{D_{1000}}{D_{750}} = \frac{R_{1000}}{R_{750}} = \frac{1000}{750} = \frac{4}{3} \approx 1.3333\times$$
+- **Example 3 ($1500$ vs $1000$):**
+  $$\frac{D_{1500}}{D_{1000}} = \frac{R_{1500}}{R_{1000}} = \frac{1500}{1000} = 1.5\times$$
 
-### 4. 3D Star-System Cluster Centroids ($\mathbf{C}_k$)
+#### Separate Maximum Sizing Scales
+To prevent dense genre hubs from overpowering individual artist nodes, separate maximum diameter/radius scales are enforced:
+- **Artists (`node_type === "artist"`):**
+  $$D_{\max,\text{artist}} = 28.0, \quad R_{\max,\text{artist}} = 14.0$$
+- **Genres (`node_type === "genre"`):**
+  $$D_{\max,\text{genre}} = 24.0, \quad R_{\max,\text{genre}} = 12.0$$
+
+#### Deduplicated Genre Listening Aggregation ($L_g$)
+When calculating listening volume for genre nodes ($L_g$), deduplication is mandatory:
+- Each unique track associated with the genre contributes its play count exactly once to $L_g$, even when the track lists multiple collaborative artists belonging to that same genre. This prevents artificial inflation of genre nodes with frequent multi-artist collaborations.
+
+#### Missing and Invalid Value Fallback ($L_i \le 0$ or `NaN`)
+If a node has missing, `null`, `undefined`, non-numeric, or non-positive listening counts ($L_i \le 0$ or `NaN`):
+- `listeningRatio = 0`
+- `isFallbackListening = true`
+- The system assigns a safe minimum geometric radius $R_{\min,\text{safe}} = 2.0$ ($D_{\min,\text{safe}} = 4.0$) strictly for 3D visibility, hit-testing, and mesh rendering.
+- Crucially, this safe minimum does NOT add an arbitrary offset ($+ \text{base}$) to nodes with valid $L_i > 0$, ensuring the linear ratio $\frac{R_i}{R_j} = \frac{L_i}{L_j}$ remains untainted.
+
+---
+
+### 3. Graphify-Inspired Clean 3D Knowledge Graph Visual Encoding
+
+The visualization replaces speculative cosmic/planetary elements (decorative atmospheric halos, Saturn rings, procedural starry skies) with the clean, authoritative design language of Graphify:
+
+- **Clean Node Geometries:** Artists are rendered as crisp 3D spheres with high-definition avatar textures (procedural neutral color on avatar fallback), and genres as faceted polyhedral knowledge hubs.
+- **Discreet Dark Canvas (`#050508`):** The 3D scene renders against a calm, deep neutral void (`#050508`), eliminating starfield particles, dust clouds, and visual clutter to optimize contrast and focus.
+- **Knowledge Cluster Envelopes:** Louvain community clusters are rendered as cohesive epistemic knowledge groupings. On hover or selection, the active cluster displays a subtle, clean convex hull/wireframe envelope rather than speculative planetary orbits.
+- **Focused State Illumination:** Instead of decorative atmospheres, selected and hovered nodes receive a clean, sharp focus rim with high-contrast text billboard labels.
+
+---
+
+### 4. Genre Graph Cohesion & Full Neighborhood Preservation
+
+- **Automatic Bipartite Switching:** Whenever the user filters by `genre` (via search query, node-type filter, or clicking a genre pill in the HUD), the system SHALL automatically comute the active graph mode to `bipartite`.
+- **Projected Genre-Genre Edges in `filterSpaceGraph`:** When isolating genre relationships, the system projects direct `genre-genre` weighted edges based on normalized Jaccard overlap of shared artists:
+  $$W(g_1, g_2) = \frac{|A(g_1) \cap A(g_2)|}{|A(g_1) \cup A(g_2)|} \in [0.0, 1.0]$$
+- **Full Neighborhood Preservation in Inspector:** When a genre node is inspected, the sidebar displays its complete bipartite neighborhood (all incident artists, individual play counts, edge weights, and shared genre overlap) without dropping connections or truncating unipartite/bipartite boundaries.
+
+---
+
+### 5. Hover Camera Zoom Stability Architecture
+
+- **`hasInitialFitRef` Guard:** A stable reference `hasInitialFitRef` prevents `<ForceGraph3D>`'s `onEngineStop` callback from triggering `zoomToFit` after the initial graph load and simulation stabilization. Subsequent physics ticks or engine stops triggered by hover or focus updates MUST NOT reset the user's camera zoom.
+- **Stable Callback References:** All hover, click, and interaction handlers passed to `<ForceGraph3D>` (`onNodeHover`, `onLinkHover`, `onNodeClick`, `onBackgroundClick`) MUST maintain stable references across component re-renders (via `useRef` and `useCallback`), preventing unneeded canvas unmounting, stage re-centering, or camera matrix jitter.
+
+---
+
+### 6. 3D Knowledge Cluster Centroids ($\mathbf{C}_k$)
 
 - Given $K = \max(\text{clusters.length}, 1)$ and Louvain modularity $Q = \text{clamp}(\text{Number.isFinite}(\text{metadata?.modularity\_score}) \ ? \ \text{metadata.modularity\_score} : 0.0, \ -0.5, \ 1.0)$:
   $$R_{\text{galaxy}} = 220.0 \cdot \left(1.0 + 1.8 \cdot \max(0.0, Q)\right) \in [220.0, 616.0]$$
@@ -73,7 +112,7 @@ For any node $u$, link $e = (u, v)$, or `metadata` object with missing (`undefin
     $$z_k = 1.0 - \frac{2k + 1}{K}, \quad \rho_k = \sqrt{\max(0.0, 1.0 - z_k^2)}, \quad \theta_k = k \cdot \varphi$$
     $$\mathbf{C}_k = \left(\text{round}(R_{\text{galaxy}} \rho_k \cos\theta_k, 2), \ \text{round}(R_{\text{galaxy}} \rho_k \sin\theta_k, 2), \ \text{round}(R_{\text{galaxy}} z_k, 2)\right)$$
 
-### 5. Edge Weight Composition (`0.65g + 0.25c + 0.10t`) & Role of the Four Connection Attributes
+### 7. Edge Weight Composition (`0.65g + 0.25c + 0.10t`) & Role of the Four Connection Attributes
 
 Each unipartite link (`link_type === "artist-artist"`) carries four connection attributes that participate in the weight and explainability model as follows:
 
@@ -91,7 +130,7 @@ Each unipartite link (`link_type === "artist-artist"`) carries four connection a
   $$W_{\text{calc}}(u, v) = \text{round}\left(\text{clamp}(C_g + C_c + C_t, \ 0.0, \ 1.0), \ 4\right)$$
   If `link.components` is missing or invalid on an `artist-artist` link, $g, c, t$ default to $0.0$, `shared_genres` defaults to `[]`, and `link.weight` is clamped to $[0.0, 1.0]$ (default $0.12$). In `bipartite` mode (`link_type === "artist-genre"`), `link.components` is `null` and $W(a, g) = \text{round}(0.35 + 0.65 \cdot S_{\text{aff}}(a), 3)$.
 
-### 6. 2-Hop Indirect Connection Relevance ($A_{2\text{hop}}(u, z)$)
+### 8. 2-Hop Indirect Connection Relevance ($A_{2\text{hop}}(u, z)$)
 
 - Given filtered graph $G = (V, E)$, direct 1-hop neighbors of $u$ are $N_1(u) = \{m \in V \mid (u, m) \in E\}$, ordered descending by $W(u, m)$ then ascending by $m.\text{name}$.
 - Candidate 2-hop nodes are $N_2(u) = \{z \in V \setminus (\{u\} \cup N_1(u)) \mid M(u, z) \neq \emptyset\}$, where $M(u, z) = \{m \in N_1(u) \mid (m, z) \in E\}$ is the set of intermediate bridge nodes.
@@ -107,12 +146,17 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 
 | Assumption / decision | Chosen default | Rationale | Confirmed? |
 | --------------------- | -------------- | --------- | ---------- |
-| 3D rendering engine on Next.js 16 / React 19 | `react-force-graph-3d` + `three` loaded via `next/dynamic` (`ssr: false`) and locked in `package.json` + `package-lock.json` | Integrates directly with the existing force-graph data model and supports custom Three.js planet meshes, atmospheres, starfields, and camera interpolation | y |
-| Pure domain model separation | Extract all deterministic planet sizing, cluster centroids, filtering, search, 1-hop/2-hop neighbor ranking, and `0.65g + 0.25c + 0.10t` decomposition into `frontend/lib/spaceGraphModel.js` | Enforces TLC rule #6 so every mathematical formula, filter, search, and count is verified by automated tests (`node --test`) | y |
+| 3D rendering engine on Next.js 16 / React 19 | `react-force-graph-3d` + `three` loaded via `next/dynamic` (`ssr: false`) and locked in `package.json` + `package-lock.json` | Integrates directly with the force-graph data model and supports clean Graphify-inspired 3D nodes, cluster centroids, and camera stability | y |
+| Pure domain model separation | Extract all deterministic linear listening sizing, cluster centroids, filtering, search, 1-hop/2-hop neighbor ranking, genre projections, and `0.65g + 0.25c + 0.10t` decomposition into `frontend/lib/spaceGraphModel.js` | Enforces TLC rule #6 so every mathematical formula, filter, search, and count is verified by automated tests (`node --test`) | y |
+| Graphify-inspired visual language | Discreet `#050508` dark canvas, clean avatar spheres, faceted genre hubs, knowledge cluster hulls, zero planetary rings or atmospheric halos | Replaces decorative cosmic clutter with an authoritative, distraction-free knowledge graph | y |
+| Linear listening sizing proportionality | $D_i = D_{\max} \cdot (L_i / L_{\max})$, $R_i = D_i / 2$ with separate artist ($D_{\max}=28.0, R_{\max}=14.0$) and genre ($D_{\max}=24.0, R_{\max}=12.0$) scales | Enforces strictly linear visual volume matching real listening volume without non-linear distortion | y |
+| Deduplicated genre listening aggregation | Deduplicate track play counts across genres ($L_g$) so each unique track contributes its count once per genre | Prevents artificial inflation of genre nodes with frequent multi-artist collaborations | y |
+| Genre graph cohesion & auto-bipartite | Auto-switch to `bipartite` on genre filter, project `genre-genre` edges in `filterSpaceGraph`, and preserve complete neighborhood in Inspector | Eliminates disconnected/empty genre graphs and maintains complete contextual navigation | y |
+| Hover camera zoom stability | `hasInitialFitRef` preventing `zoomToFit` in `onEngineStop` after initial load, and stable `useRef` for hover/click callbacks | Fixes intrusive camera zoom reset bug when hovering over nodes | y |
 | Backend contract for `connected_artists_count` & data provenance | Ensure `backend/main.py` returns `connected_artists_count` on every `GraphNode` (`int >= 1` for `genre` nodes, `null` for `artist` nodes), document in `openspec/openapi.yaml`, and verify with FastAPI integration tests in `backend/tests/test_api.py` | Verifies the live backend service delivery rather than relying on OpenAPI documentation alone | y |
 | Client preference persistence | Store non-sensitive UI preferences (`view_mode`, `min_edge_weight`, `hidden_clusters`, `visible_node_types`, `visual_effects`, `recent_planets`) under `localStorage` key `beatcode_space_prefs_v1` with defensive fallback | Preserves user exploration preferences across reloads while upholding the zero-secret invariant | y |
 | Input validation & bounds | Clamp `min_edge_weight` to `[0.05, 0.65]`, sanitize all tooltip HTML via `escapeHtml()`, cap search queries at 80 characters, and apply deterministic defaults for missing/NaN node or link fields | Prevents XSS (CWE-79), `NaN` geometry corruption in Three.js, and out-of-range filter states | y |
-| Failure / partial-failure states & External-dependency failure | Detect missing WebGL support or `webglcontextlost` / `webglcontextrestored` events to automatically fall back to 2D Canvas mode and recover cleanly; fallback to procedural planet surface when Spotify CDN image fails or blocks CORS | Guarantees uninterrupted exploration on restricted GPUs or offline/demo environments | y |
+| Failure / partial-failure states & External-dependency failure | Detect missing WebGL support or `webglcontextlost` / `webglcontextrestored` events to automatically fall back to 2D Canvas mode and recover cleanly; fallback to procedural neutral surface when Spotify CDN image fails or blocks CORS | Guarantees uninterrupted exploration on restricted GPUs or offline/demo environments | y |
 | Idempotency / retry / duplicate handling | Cancel in-flight `/api/graph` requests on parameter change and reuse flyweight Three.js geometries/textures with deterministic disposal (`disposeThreeUniverse`) | Prevents duplicate meshes, race conditions on rapid filter toggles, and GPU VRAM leaks | y |
 | Auth boundaries & rate limits | Preserve `credentials: "include"` and `cache: "no-store"` on `/auth/*` and `/api/graph`, and surface HTTP `429` `Retry-After` hints in the error state | Maintains existing browser-isolated OAuth security and rate-limit clarity | y |
 | Concurrency / ordering & State-transition integrity | Guard view transitions (`welcome` → `checking` → `demo`/`spotify` and `3D` ↔ `2D`) so switching between 2D and 3D retains `selectedNode`, `timeRange`, `graphMode`, `minEdgeWeight`, and `hiddenClusters` | Ensures state continuity during exploration | y |
@@ -124,18 +168,20 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 
 ## User Stories
 
-### P1: 3D Cosmic Universe & Planetary Graph Representation ⭐ MVP
+### P1: 3D Knowledge Graph Representation (Graphify-Inspired) ⭐ MVP
 
-**User Story**: As a music explorer, I want my Spotify artist and genre graphs rendered as a 3D space universe with planets, atmospheric halos, orbital rings, star systems, and luminous trajectories governed by deterministic formulas so that I can visually perceive musical affinities, communities, and bridge artists.
+**User Story**: As a music explorer and researcher, I want my Spotify artist and genre graphs rendered as an authoritative 3D Knowledge Graph inspired by Graphify (clean 3D nodes, explainable edges, Louvain knowledge clusters, and a distraction-free dark canvas `#050508`) with strictly linear sizing proportional to my listening volume ($L_i$) so that visual prominence directly and mathematically reflects listening behavior without cosmic clutter.
 
-**Why P1**: Core visual and mathematical foundation of BeatCode Space.
+**Why P1**: Core visual, mathematical, and architectural foundation of the BeatCode 3D Knowledge Graph.
 
 **Acceptance Criteria**:
 
-1. WHEN the graph loads in 3D mode with `graph_mode="artists"` THEN the system SHALL render each artist node as a 3D planet with deterministic radius $R_{\text{planet}}(u) = \text{round}(3.5 + 10.5 \cdot M(u), 2) \in [3.50, 14.00]$, atmospheric halo radius $R_{\text{halo}}(u) = \text{round}(R_{\text{planet}}(u) \cdot (1.15 + 1.25 \cdot \Phi(u)), 2)$, halo opacity $\alpha_{\text{halo}}(u) = \text{round}(0.10 + 0.55 \cdot \Phi(u)^{0.80}, 3)$, and an orbital ring when $u$ is `bridge_artist` or $\text{Div}_{\text{cluster}}(u) \ge 0.30$.
-2. WHEN the graph loads in 3D mode with `graph_mode="bipartite"` THEN the system SHALL render artist nodes as 3D planets ($R_{\text{planet}} \in [3.00, 12.00]$ with `connected_artists_count: null`) and genre nodes (`node_type="genre"`) as emissive polyhedral stellar cores with radius $R_{\text{star}}(g) = \text{round}(5.0 + 10.0 \cdot \min(1.0, k_g / 12.0), 2) \in [5.83, 15.00]$ derived from the backend's `connected_artists_count` ($k_g$).
-3. WHEN the 3D scene initializes THEN the system SHALL position community cluster centroids (`metadata.clusters`) on a 3D Fibonacci sphere of radius $R_{\text{galaxy}} = 220 \cdot (1 + 1.8 \cdot \max(0, Q))$ and render a background cosmic starfield with luminous edge trajectories whose width and opacity reflect `link.weight`.
-4. IF any node or link has missing, `null`, or non-finite numeric attributes OR an artist `image_url` fails to load THEN the system SHALL apply the deterministic fallback defaults and render a procedural planetary surface colored by `node.color` without `NaN` coordinates or unhandled WebGL/CORS errors.
+1. WHEN the graph loads in 3D mode with `graph_mode="artists"` THEN the system SHALL render each artist node as a clean 3D sphere with deterministic radius $R_i = \frac{D_{\max,\text{artist}}}{2} \cdot \left(\frac{L_i}{L_{\max}}\right) \in (0.0, 14.0]$ where $D_{\max,\text{artist}} = 28.0$ and $R_{\max,\text{artist}} = 14.0$, strictly preserving linear ratios ($1000$ vs $500 \implies 2.0\times$; $1000$ vs $750 \implies 1.3333\times$; $1500$ vs $1000 \implies 1.5\times$).
+2. WHEN the graph loads in 3D mode with `graph_mode="bipartite"` THEN the system SHALL render artist nodes with $R_{\max,\text{artist}} = 14.0$ and genre nodes as clean polyhedral hubs with radius $R_g = \frac{D_{\max,\text{genre}}}{2} \cdot \left(\frac{L_g}{L_{\max}}\right) \in (0.0, 12.0]$ where $D_{\max,\text{genre}} = 24.0$ and $R_{\max,\text{genre}} = 12.0$, where $L_g$ is computed by aggregating track play counts across unique songs in that genre (deduplicating multi-artist collaborations).
+3. IF a node has missing, non-positive, or non-finite listening counts ($L_i \le 0$ or `NaN`) THEN the system SHALL set `listeningRatio = 0`, flag `isFallbackListening = true`, and assign a safe geometric radius $R_{\min,\text{safe}} = 2.0$ without corrupting or offsetting the strictly linear ratio of positive nodes.
+4. WHEN the 3D scene initializes THEN the system SHALL position Louvain knowledge cluster centroids on a 3D Fibonacci sphere of radius $R_{\text{galaxy}} = 220 \cdot (1 + 1.8 \cdot \max(0, Q))$ and render on a calm `#050508` dark canvas with luminous explainable edge trajectories whose width and opacity reflect `link.weight`, with zero decorative atmospheric halos, Saturn rings, or starry background noise.
+5. WHEN the user filters by `genre` in search or the HUD THEN the system SHALL automatically switch to `bipartite` mode, generate projected `genre-genre` weighted edges in `filterSpaceGraph`, and preserve the complete bipartite neighborhood in the analytical inspector.
+6. WHILE the user hovers over any node in 3D mode THEN the system SHALL NOT reset camera zoom or trigger `zoomToFit` on engine stop (`hasInitialFitRef = true`), preserving manual camera position and zoom level.
 
 **Independent Test**: Load demo mode (`demo=true`) in 3D for both `artists` and `bipartite` modes and verify planetary radii, halos, orbital rings, genre stellar cores, `connected_artists_count`, starfield, and cluster centroids.
 
@@ -247,6 +293,7 @@ Every ambiguity is resolved or recorded here - nothing is left silently unclear.
 
 ## Success Criteria
 
-- [x] Users can explore both `artists` and `bipartite` real graphs in an immersive 3D space environment where nodes are distinct planets/stellar cores, clusters form constellations, and edges are luminous trajectories governed by deterministic equations.
-- [x] Selecting any planet displays 100% real data from `/api/graph` with `[DADO SPOTIFY]` vs `[INFERÊNCIA BEATCODE]` provenance tags, 4-attribute edge weight decomposition (`0.65g + 0.25c + 0.10t` + `shared_genres`), and navigable 1-hop and 2-hop connections.
-- [x] All 14 deterministic proofs (`C1`–`C14` covering backend contract, mathematical model, WebGL fallback, context loss/recovery, GPU disposal, reduced motion, and renderer–camera–inspector integration) and Next.js build/lint gates pass with zero errors and independent review approval.
+- [x] Users can explore both `artists` and `bipartite` real graphs in an authoritative **3D Knowledge Graph inspired by Graphify** against a clean `#050508` dark canvas, where nodes are distinct 3D spheres/polyhedra whose radii scale strictly linearly with listening counts ($L_i$), clusters form cohesive knowledge groupings, and edges are explainable luminous trajectories.
+- [x] Selecting any artist or genre displays 100% real data from `/api/graph` with `[DADO SPOTIFY]` vs `[INFERÊNCIA BEATCODE]` provenance tags, 4-attribute edge weight decomposition (`0.65g + 0.25c + 0.10t` + `shared_genres`), complete bipartite neighborhood navigation, and auto-bipartite switching on genre filter.
+- [x] Camera interaction is rock-solid without zoom loss on hover (`hasInitialFitRef` guard and stable callback refs).
+- [x] All 19 deterministic proofs (`C1`–`C19` covering backend contract, mathematical linear sizing, Graphify-inspired rendering, genre graph cohesion, hover zoom stability, WebGL fallback, context loss/recovery, GPU disposal, reduced motion, and renderer–camera–inspector integration) and Next.js build/lint gates pass with zero errors and independent review approval.
