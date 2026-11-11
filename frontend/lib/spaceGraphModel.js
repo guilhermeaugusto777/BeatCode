@@ -3,13 +3,19 @@
  *
  * Implements deterministic astrophysical mapping, 4-attribute edge explainability,
  * 1-hop and 2-hop harmonic relevance ranking, provenance separation, camera flights,
- * motion accessibility, and WebGL state transitions.
+ * motion accessibility, WebGL state transitions, linear listening proportional dimensions,
+ * projected genre-genre connectivity, and complete neighborhood preservation.
  *
  * Zero DOM or Three.js dependencies (100% testable via node --test).
  */
 
 export const DEFAULT_COLOR = "#1DB954";
 export const DEFAULT_MIN_EDGE_WEIGHT = 0.15;
+
+export const MAX_ARTIST_DIMENSION = 28.0;
+export const MAX_ARTIST_RADIUS = 14.0;
+export const MAX_GENRE_DIMENSION = 24.0;
+export const MAX_GENRE_RADIUS = 12.0;
 
 export const CLUSTER_PALETTE = [
   "#10B981", // emerald
@@ -73,7 +79,176 @@ export function sanitizeNodeName(name) {
 }
 
 /**
+ * Computes strictly proportional linear dimensions based on listening counts:
+ * D_i = D_max * (L_i / L_max), R_i = (D_max / 2) * (L_i / L_max)
+ *
+ * Guarantees mathematically without arbitrary clamps:
+ * L_A = 1000, L_B = 500 => D_A / D_B = R_A / R_B = 2.0
+ * L_A = 1000, L_B = 750 => D_A / D_B = R_A / R_B = 4 / 3 = 1.3333333333333333
+ * L_A = 1500, L_B = 1000 => D_A / D_B = R_A / R_B = 1.5
+ *
+ * @param {Array} nodes List of graph nodes
+ * @param {Object} options Configuration options (maxArtistListeningCount, maxGenreListeningCount, etc.)
+ * @returns {Map<string, Object>} Map of nodeId -> ProportionalDimensionItem (also array-like with .nodes)
+ */
+export function computeListeningProportionalDimensions(nodes = [], options = {}) {
+  const nodeList = Array.isArray(nodes) ? nodes : [];
+
+  const artists = [];
+  const genres = [];
+
+  for (const n of nodeList) {
+    if (!n || typeof n !== "object") continue;
+    const nodeType = n.node_type === "genre" ? "genre" : "artist";
+    if (nodeType === "genre") {
+      genres.push(n);
+    } else {
+      artists.push(n);
+    }
+  }
+
+  function processGroup(group, defaultDMax, explicitMax) {
+    const D_max = defaultDMax;
+    const R_max = D_max / 2.0;
+
+    const items = group.map((node) => {
+      const rawL = node.listening_count ?? node.play_count;
+      const isValid = rawL !== null && rawL !== undefined && Number.isFinite(Number(rawL)) && Number(rawL) > 0;
+      const listeningCount = isValid ? Number(rawL) : 0;
+      const name = sanitizeNodeName(node.name);
+      return {
+        node,
+        id: node.id,
+        nodeId: node.id,
+        name,
+        nodeType: node.node_type === "genre" ? "genre" : "artist",
+        listeningCount,
+        hasValidListening: isValid
+      };
+    });
+
+    // Deterministic sort: listeningCount desc, name asc
+    items.sort((a, b) => {
+      if (b.listeningCount !== a.listeningCount) {
+        return b.listeningCount - a.listeningCount;
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+    let L_max = Number.isFinite(Number(explicitMax)) && Number(explicitMax) > 0
+      ? Number(explicitMax)
+      : 0;
+
+    if (L_max === 0) {
+      for (const item of items) {
+        if (item.listeningCount > L_max) {
+          L_max = item.listeningCount;
+        }
+      }
+    }
+
+    const results = [];
+    for (let rankIdx = 0; rankIdx < items.length; rankIdx++) {
+      const item = items[rankIdx];
+      const listeningRank = rankIdx + 1;
+
+      let listeningRatio = 0;
+      let dimension = 0;
+      let radius = 0;
+      let isFallbackListening = true;
+
+      if (item.hasValidListening && item.listeningCount > 0 && L_max > 0) {
+        listeningRatio = item.listeningCount / L_max;
+        dimension = (D_max * item.listeningCount) / L_max;
+        radius = dimension / 2.0;
+        isFallbackListening = false;
+      }
+
+      const hitRadius = Math.max(radius, 4.5);
+
+      const res = {
+        id: item.id,
+        nodeId: item.nodeId,
+        node: item.node,
+        name: item.name,
+        nodeType: item.nodeType,
+        listeningCount: item.listeningCount,
+        listeningRank,
+        listeningRatio,
+        dimension,
+        radius,
+        hitRadius,
+        isFallbackListening
+      };
+
+      // Enable dual destructuring [id, res] and direct property access
+      res[Symbol.iterator] = function*() {
+        yield res.id;
+        yield res;
+      };
+
+      if (item.node && typeof item.node === "object") {
+        item.node.listeningCount = item.listeningCount;
+        item.node.listeningRank = listeningRank;
+        item.node.listeningRatio = listeningRatio;
+        item.node.proportionalDimension = dimension;
+        item.node.proportionalRadius = radius;
+        item.node.hitRadius = hitRadius;
+        item.node.isFallbackListening = isFallbackListening;
+      }
+
+      results.push(res);
+    }
+
+    return results;
+  }
+
+  const artistResults = processGroup(
+    artists,
+    MAX_ARTIST_DIMENSION,
+    options.maxArtistListeningCount ?? options.maxListeningCount
+  );
+
+  const genreResults = processGroup(
+    genres,
+    MAX_GENRE_DIMENSION,
+    options.maxGenreListeningCount ?? options.maxListeningCount
+  );
+
+  const allResults = [...artistResults, ...genreResults];
+
+  const resultMap = new Map();
+  for (let i = 0; i < allResults.length; i++) {
+    const item = allResults[i];
+    resultMap.set(item.id, item);
+    resultMap[i] = item;
+  }
+
+  resultMap.length = allResults.length;
+  resultMap.nodes = allResults;
+  resultMap.items = allResults;
+  resultMap.byNodeId = resultMap;
+  resultMap.map = (fn) => allResults.map(fn);
+  resultMap.find = (fn) => allResults.find(fn);
+  resultMap.filter = (fn) => allResults.filter(fn);
+
+  resultMap[Symbol.iterator] = function*() {
+    for (const item of allResults) {
+      yield item;
+    }
+  };
+
+  if (options.asArray === true) {
+    return allResults;
+  }
+
+  return resultMap;
+}
+
+/**
  * Computes deterministic planetary & stellar visual properties for a given node.
+ * Uses linear listening proportional dimensioning when listening counts exist,
+ * preserving mass-based legacy calculation as fallback.
  *
  * @param {Object} node Graph node from /api/graph
  * @param {Object} metadata Graph metadata (bridge_artist, modularity_score, etc.)
@@ -101,8 +276,7 @@ export function computePlanetVisualProps(node = {}, metadata = {}, graphMode = "
   const rawCb = Number.isFinite(node?.metrics?.betweenness_centrality) ? node.metrics.betweenness_centrality : 0.0;
   const C_B = Math.min(1.0, Math.max(0.0, rawCb));
 
-  // Connected artists count: for genre nodes, clamp in [1, 50], fallback to links degree (min 1).
-  // For artist nodes, explicitly null.
+  // Connected artists count for genre nodes
   let k_g = null;
   if (nodeType === "genre") {
     if (Number.isFinite(node?.connected_artists_count) && node.connected_artists_count >= 1) {
@@ -123,24 +297,82 @@ export function computePlanetVisualProps(node = {}, metadata = {}, graphMode = "
   const color = sanitizeNodeColor(node?.color);
   const name = sanitizeNodeName(node?.name);
 
-  // 2. Composite mass index & radii
+  // 2. Mass & Dimensions
   const M = 0.55 * S_hat + 0.30 * P_hat + 0.15 * C_D;
-  let geometryType = "planet";
-  let radius = 3.50;
-
   const isBipartite = graphMode === "bipartite";
+  const geometryType = nodeType === "genre" ? "star_core" : "planet";
 
-  if (nodeType === "genre") {
-    geometryType = "star_core";
-    radius = Number((5.0 + 10.0 * Math.min(1.0, k_g / 12.0)).toFixed(2));
-  } else {
-    geometryType = "planet";
-    if (isBipartite) {
-      radius = Number((3.0 + 9.0 * M).toFixed(2));
+  const D_max = nodeType === "genre" ? MAX_GENRE_DIMENSION : MAX_ARTIST_DIMENSION;
+  const R_max = D_max / 2.0;
+
+  const rawL = node?.listening_count ?? node?.play_count;
+  const hasListeningCount = rawL !== null && rawL !== undefined && Number.isFinite(Number(rawL)) && Number(rawL) > 0;
+  const hasPrecalculated = Number.isFinite(node?.proportionalRadius) && node.proportionalRadius > 0;
+
+  let listeningCount = 0;
+  let listeningRank = null;
+  let listeningRatio = 0;
+  let dimension = 0;
+  let radius = 3.50;
+  let isFallbackListening = true;
+
+  if (hasListeningCount || hasPrecalculated) {
+    isFallbackListening = false;
+    if (hasListeningCount) {
+      listeningCount = Number(rawL);
+      let L_max = 0;
+      if (nodeType === "genre") {
+        L_max = Number(
+          metadata?.max_genre_listening_count ??
+          metadata?.maxGenreListeningCount ??
+          metadata?.max_listening_count ??
+          metadata?.maxListeningCount ??
+          listeningCount
+        );
+      } else {
+        L_max = Number(
+          metadata?.max_artist_listening_count ??
+          metadata?.maxArtistListeningCount ??
+          metadata?.max_listening_count ??
+          metadata?.maxListeningCount ??
+          listeningCount
+        );
+      }
+      if (!Number.isFinite(L_max) || L_max <= 0) {
+        L_max = listeningCount;
+      }
+
+      listeningRatio = listeningCount / L_max;
+      dimension = (D_max * listeningCount) / L_max;
+      radius = dimension / 2.0;
+      listeningRank = Number.isFinite(node?.listeningRank) ? node.listeningRank : (node?.listening_rank ?? 1);
     } else {
-      radius = Number((3.5 + 10.5 * M).toFixed(2));
+      radius = Number(node.proportionalRadius);
+      dimension = Number.isFinite(node?.proportionalDimension) ? Number(node.proportionalDimension) : radius * 2.0;
+      listeningRatio = Number.isFinite(node?.listeningRatio) ? node.listeningRatio : (radius / R_max);
+      listeningCount = Number.isFinite(node?.listeningCount) ? node.listeningCount : 0;
+      listeningRank = node?.listeningRank ?? null;
     }
+  } else {
+    // Deterministic fallback based on mass M (preserves legacy test cases C1/C2)
+    isFallbackListening = true;
+    listeningCount = 0;
+    listeningRatio = 0;
+    listeningRank = null;
+
+    if (nodeType === "genre") {
+      radius = Number((5.0 + 10.0 * Math.min(1.0, k_g / 12.0)).toFixed(2));
+    } else {
+      if (isBipartite) {
+        radius = Number((3.0 + 9.0 * M).toFixed(2));
+      } else {
+        radius = Number((3.5 + 10.5 * M).toFixed(2));
+      }
+    }
+    dimension = radius * 2.0;
   }
+
+  const hitRadius = Math.max(radius, 4.5);
 
   // 3. Atmospheric halo
   const radiationIndex = Math.min(1.0, Math.max(0.0, 0.70 * Math.sqrt(C_B) + 0.30 * C_D));
@@ -199,6 +431,12 @@ export function computePlanetVisualProps(node = {}, metadata = {}, graphMode = "
     nodeType,
     geometryType,
     radius,
+    dimension,
+    hitRadius,
+    listeningCount,
+    listeningRank,
+    listeningRatio,
+    isFallbackListening,
     massIndex: Number(M.toFixed(4)),
     radiationIndex: Number(radiationIndex.toFixed(4)),
     haloRadius,
@@ -214,6 +452,8 @@ export function computePlanetVisualProps(node = {}, metadata = {}, graphMode = "
     connectedArtistsCount
   };
 }
+
+export const computeKnowledgeNodeVisualProps = computePlanetVisualProps;
 
 /**
  * Computes 3D Fibonacci centroids for Louvain community star systems.
@@ -303,7 +543,21 @@ export function decomposeEdgeWeight(link = {}, graphMode = "artists") {
     };
   }
 
-  // artist-artist
+  // artist-artist or genre-genre
+  if (link?.link_type === "genre-genre") {
+    const rawWeight = Number.isFinite(link?.weight) ? link.weight : 0.25;
+    const weight = Number(Math.min(1.0, Math.max(0.0, rawWeight)).toFixed(4));
+    return {
+      linkType: "genre-genre",
+      weight,
+      calculatedWeight: weight,
+      components: null,
+      sharedGenres: Array.isArray(link?.shared_genres) ? link.shared_genres : [],
+      sharedArtists: Array.isArray(link?.shared_artists) ? link.shared_artists : [],
+      genreMatchType: "genre_genre_projection"
+    };
+  }
+
   const comps = link?.components || {};
   const gRaw = Number.isFinite(comps.genre_similarity) ? comps.genre_similarity : 0.0;
   const cRaw = Number.isFinite(comps.direct_collaboration) ? comps.direct_collaboration : 0.0;
@@ -350,6 +604,8 @@ export function decomposeEdgeWeight(link = {}, graphMode = "artists") {
 
 /**
  * Deterministically filters graph nodes and links based on threshold, search, types, and clusters.
+ * When filtering solely by genre (nodeTypeFilter === 'genre'), projects genre-genre connections
+ * between genres sharing >= 1 artist (or in the same cluster if single-artist).
  *
  * @param {Object} graphData { metadata, nodes: [], links: [] }
  * @param {Object} filterState Filter criteria
@@ -441,6 +697,100 @@ export function filterSpaceGraph(graphData = {}, filterState = {}) {
     return visibleNodeIdSet.has(sId) && visibleNodeIdSet.has(tId);
   });
 
+  // Requirement 3: When nodeTypeFilter === 'genre', if filteredLinks has no direct connections
+  // between the visible genre nodes, build projected genre-genre connections
+  if (nodeTypeFilter === "genre" && filteredNodes.length >= 2) {
+    const hasGenreGenreLinks = filteredLinks.some((l) => l.link_type === "genre-genre");
+    if (!hasGenreGenreLinks) {
+      const allNodeMap = new Map();
+      for (const n of rawNodes) {
+        if (n && n.id) allNodeMap.set(n.id, n);
+      }
+
+      const genreToArtists = new Map();
+      for (const l of rawLinks) {
+        const sId = typeof l.source === "object" ? l.source?.id : l.source;
+        const tId = typeof l.target === "object" ? l.target?.id : l.target;
+        if (!sId || !tId) continue;
+        const sNode = allNodeMap.get(sId);
+        const tNode = allNodeMap.get(tId);
+
+        const isSGenre = sNode?.node_type === "genre" || String(sId).startsWith("genre::");
+        const isTGenre = tNode?.node_type === "genre" || String(tId).startsWith("genre::");
+        const isSArtist = sNode?.node_type === "artist" || (!isSGenre && !String(sId).startsWith("genre::"));
+        const isTArtist = tNode?.node_type === "artist" || (!isTGenre && !String(tId).startsWith("genre::"));
+
+        if (isSGenre && isTArtist) {
+          if (!genreToArtists.has(sId)) genreToArtists.set(sId, new Set());
+          genreToArtists.get(sId).add(tId);
+        } else if (isTGenre && isSArtist) {
+          if (!genreToArtists.has(tId)) genreToArtists.set(tId, new Set());
+          genreToArtists.get(tId).add(sId);
+        }
+      }
+
+      const projectedLinks = [];
+      let maxShared = 1;
+      const candidatePairs = [];
+
+      for (let i = 0; i < filteredNodes.length; i++) {
+        const g1 = filteredNodes[i];
+        const artists1 = genreToArtists.get(g1.id) || new Set();
+
+        for (let j = i + 1; j < filteredNodes.length; j++) {
+          const g2 = filteredNodes[j];
+          const artists2 = genreToArtists.get(g2.id) || new Set();
+
+          const sharedArtists = [];
+          for (const aId of artists1) {
+            if (artists2.has(aId)) sharedArtists.push(aId);
+          }
+
+          const sameCluster = Number.isFinite(g1.cluster_id) && g1.cluster_id === g2.cluster_id;
+          const count1 = artists1.size;
+          const count2 = artists2.size;
+          const qualifies = sharedArtists.length >= 1 || (sameCluster && (count1 <= 1 || count2 <= 1));
+
+          if (qualifies) {
+            if (sharedArtists.length > maxShared) {
+              maxShared = sharedArtists.length;
+            }
+            candidatePairs.push({
+              g1,
+              g2,
+              sharedArtists,
+              sameCluster
+            });
+          }
+        }
+      }
+
+      for (const pair of candidatePairs) {
+        const { g1, g2, sharedArtists, sameCluster } = pair;
+        let weight = 0.25;
+        if (sharedArtists.length >= 1) {
+          weight = Number((0.25 + 0.75 * Math.min(1.0, sharedArtists.length / Math.max(maxShared, 1))).toFixed(4));
+        } else if (sameCluster) {
+          weight = 0.25;
+        }
+
+        projectedLinks.push({
+          source: g1.id,
+          target: g2.id,
+          weight,
+          link_type: "genre-genre",
+          shared_artists: sharedArtists,
+          shared_genres: [g1.name, g2.name],
+          cluster_id: g1.cluster_id
+        });
+      }
+
+      if (projectedLinks.length > 0) {
+        filteredLinks.push(...projectedLinks);
+      }
+    }
+  }
+
   const stats = {
     totalNodes: rawNodes.length,
     visibleNodes: filteredNodes.length,
@@ -461,13 +811,16 @@ export function filterSpaceGraph(graphData = {}, filterState = {}) {
 
 /**
  * Computes 1-hop direct connections and top 8 2-hop harmonic indirect connections.
+ * When target is a genre (or fullGraphData is provided), preserves and includes
+ * connectedArtists from the full graph so the Inspector displays them even when canvas filters genres.
  *
  * @param {string} nodeId Target node id
  * @param {Object} filteredGraph { nodes: [], links: [] }
  * @param {string} graphMode "artists" | "bipartite"
+ * @param {Object|null} fullGraphData Full unfiltered graph data { nodes, links }
  * @returns {Object} NodeNeighborhood
  */
-export function computeNodeNeighborhood(nodeId, filteredGraph = {}, graphMode = "artists") {
+export function computeNodeNeighborhood(nodeId, filteredGraph = {}, graphMode = "artists", fullGraphData = null) {
   const nodes = Array.isArray(filteredGraph?.nodes) ? filteredGraph.nodes : [];
   const links = Array.isArray(filteredGraph?.links) ? filteredGraph.links : [];
 
@@ -476,7 +829,14 @@ export function computeNodeNeighborhood(nodeId, filteredGraph = {}, graphMode = 
     if (n && n.id) nodeMap.set(n.id, n);
   }
 
-  const targetNode = nodeMap.get(nodeId) || null;
+  const fullNodes = Array.isArray(fullGraphData?.nodes) ? fullGraphData.nodes : [];
+  const fullLinks = Array.isArray(fullGraphData?.links) ? fullGraphData.links : [];
+  const fullNodeMap = new Map();
+  for (const n of fullNodes) {
+    if (n && n.id) fullNodeMap.set(n.id, n);
+  }
+
+  const targetNode = nodeMap.get(nodeId) || fullNodeMap.get(nodeId) || null;
   const directConnections = [];
   const directNeighborIds = new Set();
   const highlightNodeIds = new Set();
@@ -488,6 +848,7 @@ export function computeNodeNeighborhood(nodeId, filteredGraph = {}, graphMode = 
       targetNode: null,
       directConnections: [],
       indirectConnections: [],
+      connectedArtists: [],
       highlightNodeIds,
       highlightLinkKeys
     };
@@ -513,7 +874,7 @@ export function computeNodeNeighborhood(nodeId, filteredGraph = {}, graphMode = 
 
     if (sId === nodeId || tId === nodeId) {
       const neighborId = sId === nodeId ? tId : sId;
-      const neighborNode = nodeMap.get(neighborId);
+      const neighborNode = nodeMap.get(neighborId) || fullNodeMap.get(neighborId);
       if (neighborNode) {
         directNeighborIds.add(neighborId);
         highlightNodeIds.add(neighborId);
@@ -539,19 +900,72 @@ export function computeNodeNeighborhood(nodeId, filteredGraph = {}, graphMode = 
     return nameA.localeCompare(nameB);
   });
 
+  // Requirement 4: Connected artists for genre nodes from fullGraphData (or graphData)
+  const isGenreNode = targetNode?.node_type === "genre" || String(nodeId).startsWith("genre::");
+  const connectedArtists = [];
+
+  const candidateSourceLinks = fullLinks.length > 0 ? fullLinks : links;
+  const candidateLookupMap = fullNodes.length > 0 ? fullNodeMap : nodeMap;
+
+  if (isGenreNode || fullGraphData !== null) {
+    const seenArtistIds = new Set();
+    for (const l of candidateSourceLinks) {
+      const sId = typeof l.source === "object" ? l.source?.id : l.source;
+      const tId = typeof l.target === "object" ? l.target?.id : l.target;
+      if (sId === nodeId || tId === nodeId) {
+        const otherId = sId === nodeId ? tId : sId;
+        const otherNode = candidateLookupMap.get(otherId);
+        const isArtist = otherNode ? (otherNode.node_type === "artist" || !otherNode.node_type) : (!String(otherId).startsWith("genre::"));
+
+        if (isArtist && !seenArtistIds.has(otherId)) {
+          seenArtistIds.add(otherId);
+          connectedArtists.push({
+            nodeId: otherId,
+            node: otherNode || { id: otherId, name: sanitizeNodeName(otherId), node_type: "artist" },
+            link: l,
+            weight: Number.isFinite(l.weight) ? Number(l.weight.toFixed(4)) : 0.50,
+            decomposition: decomposeEdgeWeight(l, "bipartite")
+          });
+        }
+      }
+    }
+
+    connectedArtists.sort((a, b) => {
+      if (b.weight !== a.weight) return b.weight - a.weight;
+      const nameA = a.node?.name || "";
+      const nameB = b.node?.name || "";
+      return nameA.localeCompare(nameB);
+    });
+
+    if (connectedArtists.length > 0) {
+      const hasArtistInDirect = directConnections.some(c => c.node?.node_type === "artist" || !c.node?.node_type);
+      if (directConnections.length === 0 || !hasArtistInDirect) {
+        for (const ca of connectedArtists) {
+          if (!directConnections.some(dc => dc.nodeId === ca.nodeId)) {
+            directConnections.push(ca);
+          }
+          highlightNodeIds.add(ca.nodeId);
+        }
+      }
+      for (const ca of connectedArtists) {
+        highlightNodeIds.add(ca.nodeId);
+      }
+    }
+  }
+
   // 2-Hop Candidates: z not in {nodeId} and not in directNeighborIds
-  const candidate2HopMap = new Map(); // zId -> array of bridge descriptors
+  const candidate2HopMap = new Map();
 
   for (const mId of directNeighborIds) {
     const mLinks = adj.get(mId);
     if (!mLinks) continue;
     const linkUm = mLinks.get(nodeId);
     const w_um = Number.isFinite(linkUm?.weight) ? linkUm.weight : 0.15;
-    const mNode = nodeMap.get(mId);
+    const mNode = nodeMap.get(mId) || fullNodeMap.get(mId);
 
     for (const [zId, linkMz] of mLinks.entries()) {
       if (zId === nodeId || directNeighborIds.has(zId)) continue;
-      const zNode = nodeMap.get(zId);
+      const zNode = nodeMap.get(zId) || fullNodeMap.get(zId);
       if (!zNode) continue;
 
       const w_mz = Number.isFinite(linkMz?.weight) ? linkMz.weight : 0.15;
@@ -573,7 +987,7 @@ export function computeNodeNeighborhood(nodeId, filteredGraph = {}, graphMode = 
 
   const indirectConnections = [];
   for (const [zId, bridges] of candidate2HopMap.entries()) {
-    const zNode = nodeMap.get(zId);
+    const zNode = nodeMap.get(zId) || fullNodeMap.get(zId);
     bridges.sort((a, b) => b.pathScore - a.pathScore);
 
     // Multi-path harmonic relevance: A_2hop = 1 - prod(1 - 0.70 * w_um * w_mz)
@@ -616,6 +1030,7 @@ export function computeNodeNeighborhood(nodeId, filteredGraph = {}, graphMode = 
     targetNode,
     directConnections,
     indirectConnections: top8Indirect,
+    connectedArtists,
     highlightNodeIds,
     highlightLinkKeys
   };
@@ -642,9 +1057,13 @@ export function buildNodeProvenanceProfile(node = {}, graphMode = "artists") {
   const nodeId = node.id || "";
   const nodeType = node.node_type === "genre" ? "genre" : "artist";
 
+  const rawL = node.listening_count ?? node.play_count;
+  const listeningCount = Number.isFinite(Number(rawL)) ? Number(rawL) : null;
+
   const spotifyFacts = [
     { key: "name", label: "Nome", value: sanitizeNodeName(node.name), tag: "[DADO SPOTIFY]" },
     { key: "affinity_rank", label: "Posição no Top Ouvidos", value: node.affinity_rank ?? null, tag: "[DADO SPOTIFY]" },
+    { key: "listening_count", label: "Contagem de Escutas", value: listeningCount, tag: "[DADO SPOTIFY]" },
     { key: "global_popularity", label: "Popularidade Global", value: Number.isFinite(node.global_popularity) ? node.global_popularity : 50, tag: "[DADO SPOTIFY]" },
     { key: "genres", label: "Gêneros Musicais", value: Array.isArray(node.genres) ? node.genres : [], tag: "[DADO SPOTIFY]" },
     { key: "top_tracks", label: "Músicas Principais", value: Array.isArray(node.top_tracks) ? node.top_tracks : [], tag: "[DADO SPOTIFY]" },
@@ -667,6 +1086,13 @@ export function buildNodeProvenanceProfile(node = {}, graphMode = "artists") {
       value: affScore,
       tag: "[INFERÊNCIA BEATCODE]",
       description: "Transformação linear baseada na ordem ordinal dos mais ouvidos"
+    },
+    {
+      key: "listening_rank",
+      label: "Ranking Proporcional de Escuta",
+      value: node.listeningRank ?? null,
+      tag: "[INFERÊNCIA BEATCODE]",
+      description: "Posição ordinal na distribuição de escutas registradas"
     },
     {
       key: "degree_centrality",
@@ -707,6 +1133,7 @@ export function buildNodeProvenanceProfile(node = {}, graphMode = "artists") {
       spotify: {
         name: sanitizeNodeName(node.name),
         affinity_rank: node.affinity_rank ?? null,
+        listening_count: listeningCount,
         global_popularity: Number.isFinite(node.global_popularity) ? node.global_popularity : 50,
         genres: Array.isArray(node.genres) ? node.genres : [],
         top_tracks: Array.isArray(node.top_tracks) ? node.top_tracks : [],
@@ -715,6 +1142,7 @@ export function buildNodeProvenanceProfile(node = {}, graphMode = "artists") {
       },
       inferences: {
         affinity_score: affScore,
+        listening_rank: node.listeningRank ?? null,
         degree_centrality: Number(degreeCent.toFixed(3)),
         betweenness_centrality: Number(betweennessCent.toFixed(3)),
         cluster_id: clusterId,

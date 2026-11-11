@@ -194,6 +194,12 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ClusterSummary"
+        max_artist_listening_count:
+          type: integer
+          description: Contagem máxima de escutas entre todos os artistas
+        max_genre_listening_count:
+          type: [integer, "null"]
+          description: Contagem máxima de escutas entre todos os gêneros no modo bipartite (null no modo unipartido)
 
     ClusterSummary:
       type: object
@@ -239,6 +245,19 @@ components:
         val:
           type: number
           format: float
+        listening_count:
+          type: integer
+          description: Total de escutas reais/deduplicadas do usuário para o artista ou gênero
+        listening_rank:
+          type: integer
+          description: Classificação de escuta do nó (1 = mais ouvido)
+        listening_ratio:
+          type: number
+          format: float
+          description: Razão de escuta normalizada proporcional a max_artist_listening_count ou max_genre_listening_count
+        listening_source:
+          type: string
+          description: Fonte de extração da contagem de escuta (ex. user_tracks, explicit_count, genre_tracks_dedup)
         cluster_id:
           type: integer
         color:
