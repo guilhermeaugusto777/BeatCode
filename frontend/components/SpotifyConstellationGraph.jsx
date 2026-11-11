@@ -6,6 +6,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import dynamic from "next/dynamic";
 import * as d3 from "d3-force";
 import {
+  computeListeningProportionalDimensions,
   computePlanetVisualProps,
   computeClusterCentroids,
   filterSpaceGraph,
@@ -53,6 +54,25 @@ function detectWebGLSupport() {
   }
 }
 
+/**
+ * Derives raw listening count L_i for a node (artist or genre).
+ */
+function extractRawListeningCount(node) {
+  if (!node || typeof node !== "object") return 1;
+  if (Number.isFinite(node.listening_count) && node.listening_count > 0) {
+    return Math.round(node.listening_count);
+  }
+  if (Number.isFinite(node.play_count) && node.play_count > 0) {
+    return Math.round(node.play_count);
+  }
+  if (node.node_type === "genre") {
+    return Math.max(1, Math.round(Number(node.connected_artists_count) || 1));
+  }
+  const aff = Number.isFinite(node.affinity_score) ? node.affinity_score : 0.5;
+  const pop = Number.isFinite(node.global_popularity) ? node.global_popularity : 50;
+  return Math.max(1, Math.round(aff * 100 + pop * 0.2));
+}
+
 export default function SpotifyConstellationGraph() {
   const fg3dRef = useRef(null);
   const fg2dRef = useRef(null);
@@ -63,6 +83,20 @@ export default function SpotifyConstellationGraph() {
   const starfieldObjectRef = useRef(null);
   const sceneRef = useRef(null);
 
+  // Guard ref to prevent zoom reset on hover or subsequent simulation ticks
+  const hasInitialFitRef = useRef(false);
+  const hoverNodeRef = useRef(null);
+  const selectedNodeRef = useRef(null);
+  const activeNeighborhoodRef = useRef({
+    highlightNodeIds: new Set(),
+    highlightLinkKeys: new Set(),
+  });
+  const visualPropsByNodeIdRef = useRef(new Map());
+  const motionConfigRef = useRef({
+    reducedMotion: false,
+    directionalParticles: 60,
+  });
+
   const [graphData, setGraphData] = useState({ metadata: null, nodes: [], links: [] });
   const [experience, setExperience] = useState("checking");
   const [loading, setLoading] = useState(false);
@@ -71,7 +105,7 @@ export default function SpotifyConstellationGraph() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [graphSize, setGraphSize] = useState({ width: 960, height: 640 });
 
-  // Space preferences & HUD state
+  // Graphify 3D preferences & HUD state
   const [viewMode, setViewMode] = useState("space_3d");
   const [preferredViewMode, setPreferredViewMode] = useState("space_3d");
   const [graphMode, setGraphMode] = useState("artists");
@@ -80,8 +114,8 @@ export default function SpotifyConstellationGraph() {
   const [nodeTypeFilter, setNodeTypeFilter] = useState("all");
   const [hiddenClusters, setHiddenClusters] = useState([]);
   const [visualEffects, setVisualEffects] = useState({
-    starfield: true,
-    orbital_rings: true,
+    starfield: false,
+    orbital_rings: false,
     reduced_motion: false,
   });
   const [recentPlanets, setRecentPlanets] = useState([]);
@@ -101,10 +135,16 @@ export default function SpotifyConstellationGraph() {
   // 1. Hydrate saved preferences & check WebGL support + prefers-reduced-motion
   useEffect(() => {
     const loaded = loadSpacePreferences();
-    setGraphMode(loaded.graph_mode);
+    const initialNodeType = loaded.node_type_filter || "all";
+    const initialGraphMode =
+      initialNodeType === "genre" && loaded.graph_mode === "artists"
+        ? "bipartite"
+        : loaded.graph_mode;
+
+    setGraphMode(initialGraphMode);
     setTimeRange(loaded.time_range);
     setMinEdgeWeight(loaded.min_edge_weight);
-    setNodeTypeFilter(loaded.node_type_filter);
+    setNodeTypeFilter(initialNodeType);
     setHiddenClusters(loaded.hidden_clusters || []);
     setVisualEffects(loaded.visual_effects);
     setRecentPlanets(loaded.recent_planets || []);
@@ -141,6 +181,33 @@ export default function SpotifyConstellationGraph() {
     }
     return undefined;
   }, []);
+
+  // Synchronize graphMode & nodeTypeFilter so genre filtering always has bipartite genre nodes
+  useEffect(() => {
+    if (nodeTypeFilter === "genre" && graphMode === "artists") {
+      setGraphMode("bipartite");
+    }
+  }, [nodeTypeFilter, graphMode]);
+
+  const handleGraphModeChange = useCallback(
+    (nextMode) => {
+      setGraphMode(nextMode);
+      if (nextMode === "artists" && nodeTypeFilter === "genre") {
+        setNodeTypeFilter("all");
+      }
+    },
+    [nodeTypeFilter]
+  );
+
+  const handleNodeTypeFilterChange = useCallback(
+    (nextType) => {
+      setNodeTypeFilter(nextType);
+      if (nextType === "genre" && graphMode === "artists") {
+        setGraphMode("bipartite");
+      }
+    },
+    [graphMode]
+  );
 
   // 2. Persist preferences whenever user settings change
   useEffect(() => {
@@ -206,9 +273,12 @@ export default function SpotifyConstellationGraph() {
     let active = true;
     setLoading(true);
     setGraphError(null);
+    hasInitialFitRef.current = false;
     setGraphData({ metadata: null, nodes: [], links: [] });
     setSelectedNode(null);
     setHoverNode(null);
+    hoverNodeRef.current = null;
+    selectedNodeRef.current = null;
     setFocusedClusterId(null);
 
     const url = `${API_BASE_URL}/api/graph?time_range=${timeRange}&graph_mode=${graphMode}&limit=50&demo=${
@@ -247,6 +317,7 @@ export default function SpotifyConstellationGraph() {
             }
           });
         }
+        hasInitialFitRef.current = false;
         setGraphData(data);
         setSelectedNode(null);
         setLoading(false);
@@ -268,7 +339,12 @@ export default function SpotifyConstellationGraph() {
     };
   }, [timeRange, graphMode, experience, retryCount]);
 
-  // 6. Compute motion configuration, filtered graph, centroids, neighborhood, and depth
+  // Reset initial fit guard only when dataset changes
+  useEffect(() => {
+    hasInitialFitRef.current = false;
+  }, [graphData]);
+
+  // 6. Compute motion configuration, filtered graph, centroids, proportional node dimensions, neighborhood, and depth
   const motionConfig = useMemo(
     () =>
       computeMotionConfig({
@@ -278,17 +354,82 @@ export default function SpotifyConstellationGraph() {
     [prefersReducedMotion, visualEffects?.reduced_motion]
   );
 
-  const filteredGraph = useMemo(
-    () =>
-      filterSpaceGraph(graphData, {
-        minEdgeWeight,
-        searchQuery,
-        nodeTypeFilter,
-        hiddenClusters,
-        filterNodesBySearch: false,
-      }),
-    [graphData, minEdgeWeight, searchQuery, nodeTypeFilter, hiddenClusters]
-  );
+  useEffect(() => {
+    motionConfigRef.current = motionConfig;
+  }, [motionConfig]);
+
+  const filteredGraph = useMemo(() => {
+    const baseFiltered = filterSpaceGraph(graphData, {
+      minEdgeWeight,
+      searchQuery,
+      nodeTypeFilter,
+      hiddenClusters,
+      filterNodesBySearch: false,
+    });
+
+    // If user filters exclusively by "genre" and baseFiltered.links has no genre-genre edges yet,
+    // project shared-artist connections between visible genres so the genre graph renders edges cleanly.
+    if (
+      nodeTypeFilter === "genre" &&
+      baseFiltered.nodes.length > 1 &&
+      baseFiltered.links.length === 0 &&
+      Array.isArray(graphData?.links) &&
+      graphData.links.length > 0
+    ) {
+      const visibleGenreIds = new Set(baseFiltered.nodes.map((n) => n.id));
+      const artistToGenres = new Map();
+      for (const l of graphData.links) {
+        const sId = typeof l.source === "object" ? l.source?.id : l.source;
+        const tId = typeof l.target === "object" ? l.target?.id : l.target;
+        if (!sId || !tId) continue;
+        const sIsGenre = visibleGenreIds.has(sId);
+        const tIsGenre = visibleGenreIds.has(tId);
+        if (sIsGenre && !tIsGenre) {
+          if (!artistToGenres.has(tId)) artistToGenres.set(tId, []);
+          artistToGenres.get(tId).push(sId);
+        } else if (tIsGenre && !sIsGenre) {
+          if (!artistToGenres.has(sId)) artistToGenres.set(sId, []);
+          artistToGenres.get(sId).push(tId);
+        }
+      }
+
+      const pairCounts = new Map();
+      for (const genres of artistToGenres.values()) {
+        for (let i = 0; i < genres.length; i++) {
+          for (let j = i + 1; j < genres.length; j++) {
+            const [gA, gB] =
+              genres[i] < genres[j] ? [genres[i], genres[j]] : [genres[j], genres[i]];
+            const key = `${gA}__${gB}`;
+            pairCounts.set(key, (pairCounts.get(key) || 0) + 1);
+          }
+        }
+      }
+
+      const projectedLinks = [];
+      for (const [key, sharedCount] of pairCounts.entries()) {
+        const [source, target] = key.split("__");
+        const weight = Number(Math.min(1.0, Math.max(minEdgeWeight, sharedCount * 0.25)).toFixed(4));
+        projectedLinks.push({
+          source,
+          target,
+          weight,
+          link_type: "genre-genre",
+          shared_artists_count: sharedCount,
+        });
+      }
+
+      return {
+        ...baseFiltered,
+        links: projectedLinks,
+        stats: {
+          ...baseFiltered.stats,
+          visibleLinks: projectedLinks.length,
+        },
+      };
+    }
+
+    return baseFiltered;
+  }, [graphData, minEdgeWeight, searchQuery, nodeTypeFilter, hiddenClusters]);
 
   const searchMatches = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -305,32 +446,232 @@ export default function SpotifyConstellationGraph() {
     [graphData.metadata]
   );
 
+  // Compute proportional listening dimensions D_i = D_max * (L_i / L_max) and R_i = D_i / 2
   const visualPropsByNodeId = useMemo(() => {
+    const allNodes = Array.isArray(graphData?.nodes) ? graphData.nodes : [];
+    const proportionalMap =
+      typeof computeListeningProportionalDimensions === "function"
+        ? computeListeningProportionalDimensions(allNodes, {
+            maxArtistListeningCount: graphData.metadata?.max_artist_listening_count,
+            maxGenreListeningCount: graphData.metadata?.max_genre_listening_count,
+          })
+        : new Map();
+
+    let maxArtistListening = 1;
+    let maxGenreListening = 1;
+
+    const artistSorted = [];
+    const genreSorted = [];
+
+    for (const n of allNodes) {
+      const count = extractRawListeningCount(n);
+      if (n?.node_type === "genre") {
+        if (count > maxGenreListening) maxGenreListening = count;
+        genreSorted.push({ id: n.id, count, name: n.name || "" });
+      } else {
+        if (count > maxArtistListening) maxArtistListening = count;
+        artistSorted.push({ id: n.id, count, name: n.name || "" });
+      }
+    }
+
+    artistSorted.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    genreSorted.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+
+    const rankById = new Map();
+    artistSorted.forEach((item, idx) => rankById.set(item.id, idx + 1));
+    genreSorted.forEach((item, idx) => rankById.set(item.id, idx + 1));
+
     const map = new Map();
-    for (const node of filteredGraph.nodes) {
-      map.set(
-        node.id,
-        computePlanetVisualProps(node, graphData.metadata, graphMode, filteredGraph.links)
+    const D_max_artist = graphMode === "bipartite" ? 24.0 : 28.0;
+    const D_max_genre = 30.0;
+
+    for (const node of allNodes) {
+      const propEntry = proportionalMap.get ? proportionalMap.get(node.id) : null;
+      const baseProps = computePlanetVisualProps(
+        node,
+        graphData.metadata,
+        graphMode,
+        graphData.links
       );
+      const isGenre = node?.node_type === "genre";
+      const L_i =
+        propEntry && !propEntry.isFallbackListening && propEntry.listeningCount > 0
+          ? propEntry.listeningCount
+          : Number.isFinite(baseProps.listeningCount) && baseProps.listeningCount > 0
+          ? baseProps.listeningCount
+          : extractRawListeningCount(node);
+      const L_max = isGenre ? maxGenreListening : maxArtistListening;
+      const ratio =
+        propEntry && !propEntry.isFallbackListening && propEntry.listeningRatio > 0
+          ? propEntry.listeningRatio
+          : Number.isFinite(baseProps.listeningRatio) && baseProps.listeningRatio > 0
+          ? baseProps.listeningRatio
+          : Number(Math.min(1.0, Math.max(0.05, L_i / Math.max(1, L_max))).toFixed(4));
+
+      const D_max = isGenre ? D_max_genre : D_max_artist;
+      const diameter =
+        propEntry && !propEntry.isFallbackListening && propEntry.dimension > 0
+          ? propEntry.dimension
+          : Number.isFinite(baseProps.dimension) && baseProps.dimension > 0
+          ? baseProps.dimension
+          : D_max * ratio;
+      const radius =
+        propEntry && !propEntry.isFallbackListening && propEntry.radius > 0
+          ? propEntry.radius
+          : Number.isFinite(baseProps.radius) && baseProps.radius > 0
+          ? Number(baseProps.radius)
+          : diameter / 2;
+      const rank =
+        propEntry?.listeningRank ??
+        baseProps.listeningRank ??
+        node?.listening_rank ??
+        node?.affinity_rank ??
+        rankById.get(node.id) ??
+        1;
+
+      map.set(node.id, {
+        ...baseProps,
+        radius,
+        diameter,
+        dimension: diameter,
+        listening_count: L_i,
+        listeningCount: L_i,
+        listening_max: L_max,
+        listening_ratio: ratio,
+        listeningRatio: ratio,
+        listening_rank: rank,
+        listeningRank: rank,
+      });
     }
+
     return map;
-  }, [filteredGraph.nodes, filteredGraph.links, graphData.metadata, graphMode]);
+  }, [graphData.nodes, graphData.links, graphData.metadata, graphMode]);
 
-  const activeNode = hoverNode || selectedNode;
+  useEffect(() => {
+    visualPropsByNodeIdRef.current = visualPropsByNodeId;
+  }, [visualPropsByNodeId]);
 
-  const neighborhood = useMemo(() => {
-    if (!activeNode?.id) {
-      return {
-        nodeId: null,
-        targetNode: null,
-        directConnections: [],
-        indirectConnections: [],
-        highlightNodeIds: new Set(),
-        highlightLinkKeys: new Set(),
-      };
-    }
-    return computeNodeNeighborhood(activeNode.id, filteredGraph, graphMode);
-  }, [activeNode, filteredGraph, graphMode]);
+  const rawActiveNode = hoverNode || selectedNode;
+
+  const activeNode = useMemo(() => {
+    if (!rawActiveNode) return null;
+    const vProps = visualPropsByNodeId.get(rawActiveNode.id);
+    if (!vProps) return rawActiveNode;
+    return {
+      ...rawActiveNode,
+      listening_count: rawActiveNode.listening_count ?? vProps.listening_count,
+      listening_ratio: rawActiveNode.listening_ratio ?? vProps.listening_ratio,
+      listening_rank: rawActiveNode.listening_rank ?? vProps.listening_rank,
+      diameter: rawActiveNode.diameter ?? vProps.diameter,
+      radius: rawActiveNode.radius ?? vProps.radius,
+    };
+  }, [rawActiveNode, visualPropsByNodeId]);
+
+  const computeNeighborhoodWithFallback = useCallback(
+    (targetId) => {
+      if (!targetId) {
+        return {
+          nodeId: null,
+          targetNode: null,
+          directConnections: [],
+          indirectConnections: [],
+          highlightNodeIds: new Set(),
+          highlightLinkKeys: new Set(),
+        };
+      }
+      // Pass full graphData as 4th argument so genre inspector receives all connected artists
+      const primary = computeNodeNeighborhood(
+        targetId,
+        filteredGraph,
+        graphMode,
+        graphData
+      );
+      if (
+        primary.directConnections.length === 0 &&
+        Array.isArray(graphData?.nodes) &&
+        graphData.nodes.length > 0
+      ) {
+        return computeNodeNeighborhood(targetId, graphData, graphMode, graphData);
+      }
+      return primary;
+    },
+    [filteredGraph, graphMode, graphData]
+  );
+
+  const neighborhood = useMemo(
+    () => computeNeighborhoodWithFallback(activeNode?.id || null),
+    [activeNode, computeNeighborhoodWithFallback]
+  );
+
+  useEffect(() => {
+    activeNeighborhoodRef.current = neighborhood;
+  }, [neighborhood]);
+
+  useEffect(() => {
+    selectedNodeRef.current = selectedNode;
+  }, [selectedNode]);
+
+  const handleNodeHover = useCallback(
+    (node) => {
+      const nextNode = node || null;
+      const prevId = hoverNodeRef.current?.id || null;
+      const nextId = nextNode?.id || null;
+      if (prevId === nextId) return;
+
+      hoverNodeRef.current = nextNode;
+      const targetId = nextId || selectedNodeRef.current?.id || null;
+      activeNeighborhoodRef.current = computeNeighborhoodWithFallback(targetId);
+      setHoverNode(nextNode);
+    },
+    [computeNeighborhoodWithFallback]
+  );
+
+  // Expose telemetry/test bridge for E2E verification of 3D camera stability and node dimensions
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    window.__BEATCODE_GRAPH_API__ = {
+      getCameraState: () => {
+        const cam =
+          typeof fg3dRef.current?.camera === "function" ? fg3dRef.current.camera() : null;
+        const pos = cam?.position || { x: 0, y: 0, z: 0 };
+        const dist = Math.hypot(pos.x || 0, pos.y || 0, pos.z || 0);
+        const zoom2d =
+          typeof fg2dRef.current?.zoom === "function" ? fg2dRef.current.zoom() : null;
+        return {
+          x: Number(pos.x || 0),
+          y: Number(pos.y || 0),
+          z: Number(pos.z || 0),
+          distance: Number(dist),
+          zoom2d,
+          hoverNodeId: hoverNodeRef.current?.id || null,
+          selectedNodeId: selectedNodeRef.current?.id || null,
+        };
+      },
+      triggerHoverNodeById: (nodeId) => {
+        if (!nodeId) {
+          handleNodeHover(null);
+          return null;
+        }
+        const target =
+          filteredGraph.nodes.find((n) => n.id === nodeId) ||
+          graphData.nodes.find((n) => n.id === nodeId) ||
+          null;
+        handleNodeHover(target);
+        return target ? target.id : null;
+      },
+      getNodeVisualProps: (nodeId) => visualPropsByNodeIdRef.current.get(nodeId) || null,
+      getFilteredStats: () => ({
+        graphMode,
+        nodeTypeFilter,
+        visibleNodes: filteredGraph.nodes.length,
+        visibleLinks: filteredGraph.links.length,
+        linkTypes: Array.from(new Set(filteredGraph.links.map((l) => l.link_type || "default"))),
+      }),
+    };
+    return () => {
+      delete window.__BEATCODE_GRAPH_API__;
+    };
+  }, [filteredGraph, graphData.nodes, graphMode, nodeTypeFilter, handleNodeHover]);
 
   const explorationDepth = useMemo(
     () =>
@@ -350,7 +691,7 @@ export default function SpotifyConstellationGraph() {
     };
   }, [graphData, viewMode]);
 
-  // 8. Configure 3D forces & starfield when 3D graph is active
+  // 8. Configure 3D forces & clean Graphify stage when 3D graph is active
   useEffect(() => {
     if (viewMode !== "space_3d" || !webglHealthy || !fg3dRef.current) return;
     const fg3d = fg3dRef.current;
@@ -368,12 +709,10 @@ export default function SpotifyConstellationGraph() {
           scene.remove(starfieldObjectRef.current);
           starfieldObjectRef.current = null;
         }
-        if (visualEffects?.starfield !== false) {
-          const stars = createCosmicStarfield(1200, 1400, resourceRegistryRef.current);
-          starfieldObjectRef.current = stars;
-          if (typeof scene.add === "function") {
-            scene.add(stars);
-          }
+        const stageGroup = createCosmicStarfield(0, 1400, resourceRegistryRef.current);
+        starfieldObjectRef.current = stageGroup;
+        if (typeof scene.add === "function") {
+          scene.add(stageGroup);
         }
       }
     }
@@ -383,7 +722,6 @@ export default function SpotifyConstellationGraph() {
     graphMode,
     clusterCentroids,
     filteredGraph.nodes,
-    visualEffects?.starfield,
   ]);
 
   // 9. Sync 3D OrbitControls autoRotate with motionConfig & autoRotate toggle
@@ -468,7 +806,7 @@ export default function SpotifyConstellationGraph() {
       );
     fg2dRef.current.d3Force(
       "collide",
-      d3.forceCollide((node) => (node.val || 12) + 8)
+      d3.forceCollide((node) => (visualPropsByNodeIdRef.current.get(node.id)?.radius || node.val || 10) + 6)
     );
   }, [viewMode, graphData, graphMode]);
 
@@ -523,18 +861,44 @@ export default function SpotifyConstellationGraph() {
     [viewMode, motionConfig.reducedMotion]
   );
 
+  // Select node by object or ID, searching both filteredGraph.nodes and full graphData.nodes
   const handleSelectAndFocusNode = useCallback(
-    (nodeOrRef) => {
-      if (!nodeOrRef) return;
+    (nodeOrId) => {
+      if (!nodeOrId) return;
+      const targetId = typeof nodeOrId === "string" ? nodeOrId : nodeOrId.id;
       const resolved =
-        graphData.nodes.find((n) => n.id === nodeOrRef.id) || nodeOrRef;
+        filteredGraph.nodes.find((n) => n.id === targetId) ||
+        graphData.nodes.find((n) => n.id === targetId) ||
+        (typeof nodeOrId === "object" ? nodeOrId : null);
+
+      if (!resolved) return;
+
+      // If the selected node was hidden by the current type filter (e.g. clicking a connected artist while viewing genres), reveal it
+      const resolvedType = resolved.node_type || "artist";
+      if (nodeTypeFilter !== "all" && nodeTypeFilter !== resolvedType) {
+        setNodeTypeFilter("all");
+      }
+      if (
+        resolved.cluster_id !== undefined &&
+        hiddenClusters.includes(resolved.cluster_id)
+      ) {
+        setHiddenClusters((prev) => prev.filter((id) => id !== resolved.cluster_id));
+      }
+
+      selectedNodeRef.current = resolved;
       setSelectedNode(resolved);
       setFocusedClusterId(null);
       const updatedPrefs = recordVisitedPlanet(resolved);
       setRecentPlanets(updatedPrefs.recent_planets || []);
       flyCameraToNode(resolved);
     },
-    [graphData.nodes, flyCameraToNode]
+    [
+      filteredGraph.nodes,
+      graphData.nodes,
+      nodeTypeFilter,
+      hiddenClusters,
+      flyCameraToNode,
+    ]
   );
 
   const handleFocusCluster = useCallback(
@@ -542,6 +906,7 @@ export default function SpotifyConstellationGraph() {
       if (!cluster) return;
       const clusterId = cluster.cluster_id;
       setSelectedNode(null);
+      selectedNodeRef.current = null;
       setFocusedClusterId(clusterId);
 
       const centroid = clusterCentroids.get(clusterId);
@@ -567,7 +932,9 @@ export default function SpotifyConstellationGraph() {
   );
 
   const handleResetOverview = useCallback(() => {
+    hasInitialFitRef.current = false;
     setSelectedNode(null);
+    selectedNodeRef.current = null;
     setFocusedClusterId(null);
     const ms = motionConfig.reducedMotion ? 0 : 800;
 
@@ -586,8 +953,10 @@ export default function SpotifyConstellationGraph() {
       if (typeof fg3dRef.current.zoomToFit === "function") {
         fg3dRef.current.zoomToFit(ms, 40);
       }
+      hasInitialFitRef.current = true;
     } else if (fg2dRef.current) {
       fg2dRef.current.zoomToFit(ms, 36);
+      hasInitialFitRef.current = true;
     }
   }, [viewMode, motionConfig.reducedMotion]);
 
@@ -650,25 +1019,22 @@ export default function SpotifyConstellationGraph() {
     }));
   }, []);
 
-  const handleViewModeChange = useCallback(
-    (nextMode) => {
-      setPreferredViewMode(nextMode);
-      if (nextMode === "space_3d" && !detectWebGLSupport()) {
-        const fb = resolveWebGLFallbackState(
-          { viewMode: "map_2d", preferredViewMode: "space_3d" },
-          "webgl_unsupported"
-        );
-        setViewMode("map_2d");
-        setWebglHealthy(false);
-        setStatusBanner(fb.statusBanner);
-        return;
-      }
-      setViewMode(nextMode);
-    },
-    []
-  );
+  const handleViewModeChange = useCallback((nextMode) => {
+    setPreferredViewMode(nextMode);
+    if (nextMode === "space_3d" && !detectWebGLSupport()) {
+      const fb = resolveWebGLFallbackState(
+        { viewMode: "map_2d", preferredViewMode: "space_3d" },
+        "webgl_unsupported"
+      );
+      setViewMode("map_2d");
+      setWebglHealthy(false);
+      setStatusBanner(fb.statusBanner);
+      return;
+    }
+    setViewMode(nextMode);
+  }, []);
 
-  // 14. 3D Node renderer & sanitized tooltip
+  // 14. Stable 3D Node renderer & sanitized Graphify tooltip (independent of hoverNode state)
   const renderNodeThreeObject = useCallback(
     (node) => {
       const visualProps =
@@ -678,7 +1044,6 @@ export default function SpotifyConstellationGraph() {
         node,
         visualProps,
         {
-          orbitalRings: visualEffects?.orbital_rings !== false,
           metadata: graphData.metadata,
           graphMode,
           links: filteredGraph.links,
@@ -686,174 +1051,145 @@ export default function SpotifyConstellationGraph() {
         resourceRegistryRef.current
       );
     },
-    [
-      visualPropsByNodeId,
-      graphData.metadata,
-      graphMode,
-      filteredGraph.links,
-      visualEffects?.orbital_rings,
-    ]
+    [visualPropsByNodeId, graphData.metadata, graphMode, filteredGraph.links]
   );
 
   const renderNodeLabel3D = useCallback((node) => {
     const safeName = escapeHtml(node?.name || "Desconhecido");
     const isGenre = node?.node_type === "genre";
-    const typeLabel = isGenre ? "Núcleo Estelar · Gênero" : "Planeta · Artista";
-    const metricText = isGenre
-      ? `Artistas conectados: ${escapeHtml(node?.connected_artists_count ?? 1)}`
-      : node?.affinity_rank
-      ? `Rank #${escapeHtml(node.affinity_rank)} no perfil`
-      : `Centralidade: ${escapeHtml(node?.metrics?.degree_centrality ?? 0)}`;
-    return `<div style="padding:6px 10px;border-radius:10px;background:rgba(8,13,24,0.92);border:1px solid rgba(29,185,84,0.45);color:#f9fafb;font-family:system-ui,sans-serif;font-size:12px;line-height:1.35;">
-      <strong style="display:block;color:#ffffff;">${safeName}</strong>
-      <span style="color:#4ade80;font-size:11px;">${typeLabel}</span><br/>
-      <span style="color:#a1a1aa;font-size:11px;">${metricText}</span>
+    const vProps = visualPropsByNodeIdRef.current.get(node?.id) || {};
+    const listeningCount =
+      vProps.listening_count ?? node?.listening_count ?? extractRawListeningCount(node);
+    const listeningRank =
+      vProps.listening_rank ?? node?.listening_rank ?? node?.affinity_rank ?? "—";
+    const ratioPct = Number(
+      ((vProps.listening_ratio ?? node?.listening_ratio ?? 0.5) * 100)
+    ).toFixed(1);
+    const diameter = Number(
+      vProps.diameter ?? node?.diameter ?? (vProps.radius ? vProps.radius * 2 : 10)
+    ).toFixed(2);
+    const typeLabel = isGenre ? "Hub Semântico · Gênero" : "Nó do Grafo · Artista";
+
+    return `<div style="padding:8px 11px;border-radius:10px;background:rgba(9,13,22,0.95);border:1px solid rgba(29,185,84,0.5);color:#f8fafc;font-family:system-ui,sans-serif;font-size:12px;line-height:1.45;min-width:190px;">
+      <strong style="display:block;color:#ffffff;font-size:13px;">${safeName}</strong>
+      <span style="color:#4ade80;font-size:11px;font-weight:600;">${typeLabel}</span>
+      <div style="margin-top:4px;padding-top:4px;border-top:1px solid rgba(148,163,184,0.2);color:#cbd5e1;font-size:11px;">
+        <div>Escutas (L_i): <strong style="color:#fff;">${escapeHtml(listeningCount)}</strong> · Rank <strong style="color:#38bdf8;">#${escapeHtml(listeningRank)}</strong></div>
+        <div>Proporção (L_i/L_max): <strong style="color:#4ade80;">${escapeHtml(ratioPct)}%</strong></div>
+        <div>Dimensão 3D (D_i): <strong style="color:#f8fafc;">${escapeHtml(diameter)}</strong></div>
+      </div>
     </div>`;
   }, []);
 
-  // 15. 2D Canvas Node Painter
-  const paintNode2D = useCallback(
-    (node, ctx, globalScale) => {
-      if (node.x === undefined || node.y === undefined) return;
+  // 15. Stable 2D Canvas Node Painter (reads hover/active refs without recreating callback)
+  const paintNode2D = useCallback((node, ctx, globalScale) => {
+    if (node.x === undefined || node.y === undefined) return;
 
-      const isHighlighted =
-        !activeNode || neighborhood.highlightNodeIds.has(node.id);
-      const isFocused = activeNode && activeNode.id === node.id;
-      const vProps = visualPropsByNodeId.get(node.id);
-      const radius = vProps?.radius || node.val || 10;
+    const currentActive = hoverNodeRef.current || selectedNodeRef.current;
+    const highlightSet = activeNeighborhoodRef.current?.highlightNodeIds;
+    const isHighlighted =
+      !currentActive || (highlightSet && highlightSet.has(node.id));
+    const isFocused = currentActive && currentActive.id === node.id;
+    const vProps = visualPropsByNodeIdRef.current.get(node.id);
+    const radius = vProps?.radius || node.val || 8;
 
-      ctx.save();
-      ctx.globalAlpha = isHighlighted ? 1.0 : 0.16;
+    ctx.save();
+    ctx.globalAlpha = isHighlighted ? 1.0 : 0.18;
 
-      if (isFocused) {
-        ctx.shadowColor = node.color || "#1DB954";
-        ctx.shadowBlur = 22;
+    if (isFocused) {
+      ctx.shadowColor = node.color || "#1DB954";
+      ctx.shadowBlur = 18;
+    }
+
+    if (node.node_type === "genre") {
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const angle = (Math.PI / 3) * i - Math.PI / 6;
+        const hx = node.x + radius * Math.cos(angle);
+        const hy = node.y + radius * Math.sin(angle);
+        if (i === 0) ctx.moveTo(hx, hy);
+        else ctx.lineTo(hx, hy);
       }
+      ctx.closePath();
+      ctx.fillStyle = "#0b1320";
+      ctx.fill();
+      ctx.lineWidth = isFocused ? 3 / globalScale : 2 / globalScale;
+      ctx.strokeStyle = node.color || "#38bdf8";
+      ctx.stroke();
 
-      if (node.node_type === "genre") {
-        ctx.beginPath();
-        for (let i = 0; i < 6; i++) {
-          const angle = (Math.PI / 3) * i - Math.PI / 6;
-          const hx = node.x + radius * Math.cos(angle);
-          const hy = node.y + radius * Math.sin(angle);
-          if (i === 0) ctx.moveTo(hx, hy);
-          else ctx.lineTo(hx, hy);
-        }
-        ctx.closePath();
-        ctx.fillStyle = "#0b1320";
-        ctx.fill();
-        ctx.lineWidth = isFocused ? 3 / globalScale : 2 / globalScale;
-        ctx.strokeStyle = node.color || "#38bdf8";
-        ctx.stroke();
+      const fontSize = Math.max(9.5 / globalScale, 3.2);
+      ctx.font = `700 ${fontSize}px Inter, system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = node.color || "#38bdf8";
+      ctx.fillText(`# ${node.name}`, node.x, node.y);
+    } else {
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
+      ctx.closePath();
+      ctx.fillStyle = node.color || "#1DB954";
+      ctx.fill();
+      ctx.lineWidth = isFocused ? 3 / globalScale : 1.8 / globalScale;
+      ctx.strokeStyle = isFocused ? "#ffffff" : "rgba(255,255,255,0.35)";
+      ctx.stroke();
 
-        const fontSize = Math.max(9.5 / globalScale, 3.2);
-        ctx.font = `700 ${fontSize}px Inter, system-ui, sans-serif`;
+      if (globalScale >= 0.9 || (currentActive && isHighlighted)) {
+        const fontSize = Math.max(11 / globalScale, 3.5);
+        ctx.font = `600 ${fontSize}px Inter, system-ui, sans-serif`;
         ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillStyle = node.color || "#38bdf8";
-        ctx.fillText(`# ${node.name}`, node.x, node.y);
-      } else {
-        // Optional Orbital Ring in 2D for bridge artists
-        if (vProps?.hasOrbitalRing && visualEffects?.orbital_rings !== false) {
-          ctx.beginPath();
-          ctx.ellipse(
-            node.x,
-            node.y,
-            radius * 1.65,
-            radius * 0.65,
-            vProps.ringTiltRad || -0.35,
-            0,
-            2 * Math.PI
-          );
-          ctx.strokeStyle = node.color || "#1DB954";
-          ctx.lineWidth = 1.4 / globalScale;
-          ctx.stroke();
-        }
-
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
-        ctx.closePath();
-        ctx.save();
-        ctx.clip();
-
-        const img = imageCache.current[node.id];
-        if (img && img.complete && img.naturalWidth !== 0) {
-          ctx.drawImage(img, node.x - radius, node.y - radius, radius * 2, radius * 2);
-        } else {
-          ctx.fillStyle = "#10141d";
-          ctx.fill();
-          const initials = String(node.name || "A")
-            .split(" ")
-            .slice(0, 2)
-            .map((w) => w[0])
-            .join("")
-            .toUpperCase();
-          ctx.font = `700 ${Math.max(radius * 0.65, 4)}px Inter, system-ui, sans-serif`;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillStyle = node.color || "#1DB954";
-          ctx.fillText(initials, node.x, node.y);
-        }
-        ctx.restore();
-
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
-        ctx.lineWidth = isFocused ? 3.5 / globalScale : 2.2 / globalScale;
-        ctx.strokeStyle = node.color || "#1DB954";
-        ctx.stroke();
-
-        if (globalScale >= 1.05 || (activeNode && isHighlighted)) {
-          const fontSize = Math.max(11 / globalScale, 3.5);
-          ctx.font = `600 ${fontSize}px Inter, system-ui, sans-serif`;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "top";
-          ctx.fillStyle = "#F9FAFB";
-          ctx.fillText(node.name, node.x, node.y + radius + 4 / globalScale);
-        }
+        ctx.textBaseline = "top";
+        ctx.fillStyle = "#F9FAFB";
+        ctx.fillText(node.name, node.x, node.y + radius + 4 / globalScale);
       }
+    }
 
-      ctx.restore();
-    },
-    [activeNode, neighborhood.highlightNodeIds, visualPropsByNodeId, visualEffects?.orbital_rings]
-  );
+    ctx.restore();
+  }, []);
 
-  // 16. Link styling callbacks (shared between 3D and 2D)
-  const isLinkHighlighted = useCallback(
-    (link) => {
-      if (!activeNode) return false;
-      const sId = typeof link.source === "object" ? link.source?.id : link.source;
-      const tId = typeof link.target === "object" ? link.target?.id : link.target;
-      return neighborhood.highlightLinkKeys.has(`${sId}__${tId}`);
-    },
-    [activeNode, neighborhood.highlightLinkKeys]
-  );
+  // 16. Stable Link styling callbacks (use refs so hover never recreates ForceGraph props)
+  const isLinkHighlighted = useCallback((link) => {
+    const currentActive = hoverNodeRef.current || selectedNodeRef.current;
+    if (!currentActive) return false;
+    const sId = typeof link.source === "object" ? link.source?.id : link.source;
+    const tId = typeof link.target === "object" ? link.target?.id : link.target;
+    return Boolean(
+      activeNeighborhoodRef.current?.highlightLinkKeys?.has(`${sId}__${tId}`)
+    );
+  }, []);
 
   const getLinkWidth = useCallback(
     (link) => {
       const w = Number.isFinite(link?.weight) ? link.weight : 0.2;
-      return isLinkHighlighted(link) ? Math.max(1.8, w * 4.5) : Math.max(0.6, w * 1.8);
+      return isLinkHighlighted(link) ? Math.max(1.8, w * 4.2) : Math.max(0.7, w * 1.8);
     },
     [isLinkHighlighted]
   );
 
   const getLinkColor = useCallback(
     (link) => {
-      if (!activeNode) return "rgba(148, 163, 184, 0.24)";
+      const currentActive = hoverNodeRef.current || selectedNodeRef.current;
+      if (!currentActive) return "rgba(148, 163, 184, 0.28)";
       return isLinkHighlighted(link)
         ? "rgba(29, 185, 84, 0.92)"
-        : "rgba(63, 63, 70, 0.08)";
+        : "rgba(71, 85, 105, 0.12)";
     },
-    [activeNode, isLinkHighlighted]
+    [isLinkHighlighted]
   );
 
   const getLinkParticles = useCallback(
     (link) => {
-      if (motionConfig.reducedMotion || motionConfig.directionalParticles === 0) {
+      const cfg = motionConfigRef.current;
+      if (cfg.reducedMotion || cfg.directionalParticles === 0) {
         return 0;
       }
       return isLinkHighlighted(link) ? 2 : 0;
     },
-    [motionConfig.reducedMotion, motionConfig.directionalParticles, isLinkHighlighted]
+    [isLinkHighlighted]
+  );
+
+  const getNodeVal = useCallback(
+    (node) => visualPropsByNodeId.get(node.id)?.radius || node.val || 8,
+    [visualPropsByNodeId]
   );
 
   // 17. Session logout / leave handler
@@ -876,9 +1212,12 @@ export default function SpotifyConstellationGraph() {
       setLoggingOut(false);
     }
     disposeThreeUniverse(sceneRef.current, resourceRegistryRef.current);
+    hasInitialFitRef.current = false;
     setGraphData({ metadata: null, nodes: [], links: [] });
     setSelectedNode(null);
+    selectedNodeRef.current = null;
     setHoverNode(null);
+    hoverNodeRef.current = null;
     setFocusedClusterId(null);
     setGraphError(null);
     setExperience("welcome");
@@ -904,22 +1243,22 @@ export default function SpotifyConstellationGraph() {
               className="h-3 w-3 rounded-full bg-[#1DB954] shadow-[0_0_22px_#1DB954]"
               aria-hidden="true"
             />
-            BeatCode <span className="text-[#1DB954]">Space</span>{" "}
-            <span className="font-normal text-zinc-500">/ universo musical 3D</span>
+            BeatCode <span className="text-[#1DB954]">Graphify 3D</span>{" "}
+            <span className="font-normal text-zinc-500">/ grafo de conhecimento musical</span>
           </div>
           <div className="grid flex-1 items-center gap-12 py-14 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
             <div className="relative z-10 max-w-xl">
               <p className="mb-5 text-xs font-semibold uppercase tracking-[0.25em] text-emerald-400">
-                Seu gosto tem gravidade e órbita
+                Topologia proporcional às suas escutas
               </p>
               <h1 className="text-5xl font-black leading-[0.98] tracking-[-0.06em] sm:text-7xl">
-                Ouça as conexões.
+                Mapeie as conexões.
                 <br />
-                <span className="text-[#1DB954]">Explore o cosmos.</span>
+                <span className="text-[#1DB954]">Explore o Grafo 3D.</span>
               </h1>
               <p className="mt-7 max-w-lg text-base leading-7 text-zinc-400">
-                Navegue por planetas de artistas, núcleos estelares de gêneros e constelações em um
-                observatório 3D e 2D interativo da sua música.
+                Navegue por nós de artistas, hubs semânticos de gêneros, clusters Louvain e arestas
+                ponderadas em um grafo de conhecimento 3D e 2D inspirado no Graphify.
               </p>
               <div className="mt-10 grid gap-3 sm:grid-cols-2">
                 <a
@@ -932,7 +1271,7 @@ export default function SpotifyConstellationGraph() {
                     Conectar com Spotify ↗
                   </strong>
                   <span className="mt-3 block text-sm text-emerald-950/80">
-                    Entre com sua conta para mapear seus planetas e constelações.
+                    Entre com sua conta para gerar seu grafo 3D de artistas, gêneros e clusters.
                   </span>
                 </a>
                 <button
@@ -948,7 +1287,7 @@ export default function SpotifyConstellationGraph() {
                     Explorar demonstração →
                   </strong>
                   <span className="mt-3 block text-sm text-zinc-400">
-                    Experimente o universo 3D e 2D com dados verificados de exemplo.
+                    Experimente o Grafo de Conhecimento 3D e 2D com dados verificados de exemplo.
                   </span>
                 </button>
               </div>
@@ -968,11 +1307,11 @@ export default function SpotifyConstellationGraph() {
               <span className="preview-node preview-node-d">D</span>
               <span className="preview-node preview-node-e">E</span>
               <span className="preview-node preview-node-f">#</span>
-              <span className="preview-caption">PLANETAS · NÚCLEOS ESTELARES · CONSTELAÇÕES</span>
+              <span className="preview-caption">NÓS · ARTÍSTAS · GÊNEROS · CLUSTERS · ARESTAS</span>
             </div>
           </div>
           <p className="text-xs text-zinc-600">
-            BeatCode Space diferencia explicitamente dados medidos pelo Spotify de inferências topológicas.
+            BeatCode Graphify 3D diferencia explicitamente dados medidos pelo Spotify de inferências topológicas.
           </p>
         </div>
       </main>
@@ -982,13 +1321,13 @@ export default function SpotifyConstellationGraph() {
   const render3DActive = viewMode === "space_3d" && webglHealthy;
 
   return (
-    <div className="flex h-dvh w-full flex-col overflow-y-auto bg-[#03050a] font-sans text-zinc-100 lg:overflow-hidden">
-      {/* Barra de Observação Superior, Busca, Banner e Doca de Câmera 360° */}
+    <div className="flex h-dvh w-full flex-col overflow-y-auto bg-[#05070d] font-sans text-zinc-100 lg:overflow-hidden">
+      {/* Barra Superior do Grafo de Conhecimento 3D, Busca, Filtros e Controles de Câmera */}
       <SpaceHudControls
         viewMode={render3DActive ? "space_3d" : "map_2d"}
         onViewModeChange={handleViewModeChange}
         graphMode={graphMode}
-        onGraphModeChange={setGraphMode}
+        onGraphModeChange={handleGraphModeChange}
         timeRange={timeRange}
         onTimeRangeChange={setTimeRange}
         minEdgeWeight={minEdgeWeight}
@@ -1002,7 +1341,7 @@ export default function SpotifyConstellationGraph() {
           setSearchQuery("");
         }}
         nodeTypeFilter={nodeTypeFilter}
-        onNodeTypeFilterChange={setNodeTypeFilter}
+        onNodeTypeFilterChange={handleNodeTypeFilterChange}
         explorationDepth={explorationDepth}
         selectedNode={selectedNode}
         onCenterSelected={() => selectedNode && flyCameraToNode(selectedNode)}
@@ -1023,19 +1362,19 @@ export default function SpotifyConstellationGraph() {
       />
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        {/* Palco Cósmico Principal (3D WebGL ou 2D Cartográfico) */}
+        {/* Palco do Grafo de Conhecimento (3D WebGL ou 2D) */}
         <main
           ref={graphContainerRef}
           data-testid="beatcode-space-stage"
           className="space-universe-stage relative min-h-[54vh] min-w-0 flex-1 overflow-hidden lg:min-h-0"
-          aria-label="Universo musical interativo BeatCode Space"
+          aria-label="Grafo de Conhecimento 3D BeatCode"
         >
           {loading ? (
             <div
               className="flex h-full items-center justify-center px-6 text-center text-sm text-zinc-300"
               role="status"
             >
-              Mapeando planetas, núcleos estelares e trajetórias gravitacionais...
+              Construindo Grafo de Conhecimento 3D, calculando proporções de escuta e clusters...
             </div>
           ) : graphError ? (
             <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
@@ -1072,14 +1411,14 @@ export default function SpotifyConstellationGraph() {
               className="flex h-full items-center justify-center px-6 text-center text-sm text-zinc-400"
               role="status"
             >
-              Nenhum artista encontrado neste período. Escolha outro intervalo para explorar.
+              Nenhum nó de artista encontrado neste período. Escolha outro intervalo para explorar.
             </div>
           ) : filteredGraph.nodes.length === 0 ? (
             <div
               className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-zinc-300"
               role="status"
             >
-              <p>Nenhum planeta ou gênero visível com os filtros atuais.</p>
+              <p>Nenhum nó (artista ou gênero) visível com os filtros atuais.</p>
               <button
                 type="button"
                 onClick={() => {
@@ -1089,7 +1428,7 @@ export default function SpotifyConstellationGraph() {
                 }}
                 className="rounded-xl border border-emerald-500/50 bg-emerald-950/40 px-4 py-2 text-xs font-semibold text-emerald-300 hover:bg-emerald-900/50"
               >
-                Restaurar filtros visuais
+                Restaurar filtros do grafo
               </button>
             </div>
           ) : render3DActive ? (
@@ -1098,28 +1437,34 @@ export default function SpotifyConstellationGraph() {
               width={graphSize.width}
               height={graphSize.height}
               graphData={filteredGraph}
-              backgroundColor="rgba(3, 5, 10, 0)"
+              backgroundColor="#05070d"
               showNavInfo={false}
               nodeRelSize={1}
-              nodeVal={(node) => visualPropsByNodeId.get(node.id)?.radius || node.val || 8}
+              nodeVal={getNodeVal}
               nodeThreeObject={renderNodeThreeObject}
               nodeThreeObjectExtend={false}
               nodeLabel={renderNodeLabel3D}
-              onNodeHover={(node) => setHoverNode(node || null)}
+              onNodeHover={handleNodeHover}
               onNodeClick={handleSelectAndFocusNode}
               onBackgroundClick={() => {
                 setSelectedNode(null);
+                selectedNodeRef.current = null;
                 setFocusedClusterId(null);
               }}
               linkWidth={getLinkWidth}
               linkColor={getLinkColor}
-              linkOpacity={0.55}
+              linkOpacity={0.62}
               linkDirectionalParticles={getLinkParticles}
-              linkDirectionalParticleWidth={2.4}
-              cooldownTicks={120}
+              linkDirectionalParticleWidth={2.2}
+              cooldownTicks={100}
               onEngineStop={() => {
-                if (!selectedNode && focusedClusterId === null) {
-                  fg3dRef.current?.zoomToFit(motionConfig.reducedMotion ? 0 : 400, 48);
+                if (
+                  !hasInitialFitRef.current &&
+                  !selectedNodeRef.current &&
+                  focusedClusterId === null
+                ) {
+                  hasInitialFitRef.current = true;
+                  fg3dRef.current?.zoomToFit(motionConfigRef.current.reducedMotion ? 0 : 400, 48);
                 }
               }}
             />
@@ -1129,38 +1474,47 @@ export default function SpotifyConstellationGraph() {
               width={graphSize.width}
               height={graphSize.height}
               graphData={filteredGraph}
-              backgroundColor="#03050a"
+              backgroundColor="#05070d"
               nodeRelSize={1}
-              nodeVal={(node) => visualPropsByNodeId.get(node.id)?.radius || node.val || 10}
+              nodeVal={getNodeVal}
               nodeCanvasObject={paintNode2D}
               nodePointerAreaPaint={(node, color, ctx) => {
-                const r = visualPropsByNodeId.get(node.id)?.radius || node.val || 12;
+                const r = Math.max(
+                  visualPropsByNodeIdRef.current.get(node.id)?.radius || node.val || 10,
+                  6
+                );
                 ctx.fillStyle = color;
                 ctx.beginPath();
                 ctx.arc(node.x, node.y, r + 3, 0, 2 * Math.PI, false);
                 ctx.fill();
               }}
-              onNodeHover={(node) => setHoverNode(node || null)}
+              onNodeHover={handleNodeHover}
               onNodeClick={handleSelectAndFocusNode}
               onBackgroundClick={() => {
                 setSelectedNode(null);
+                selectedNodeRef.current = null;
                 setFocusedClusterId(null);
               }}
               linkWidth={getLinkWidth}
               linkColor={getLinkColor}
               linkDirectionalParticles={getLinkParticles}
-              linkDirectionalParticleWidth={3}
-              cooldownTicks={120}
+              linkDirectionalParticleWidth={2.5}
+              cooldownTicks={100}
               onEngineStop={() => {
-                if (!selectedNode && focusedClusterId === null) {
-                  fg2dRef.current?.zoomToFit(motionConfig.reducedMotion ? 0 : 300, 32);
+                if (
+                  !hasInitialFitRef.current &&
+                  !selectedNodeRef.current &&
+                  focusedClusterId === null
+                ) {
+                  hasInitialFitRef.current = true;
+                  fg2dRef.current?.zoomToFit(motionConfigRef.current.reducedMotion ? 0 : 300, 32);
                 }
               }}
             />
           )}
         </main>
 
-        {/* Painel Contextual de Inspeção de Planetas, Proveniência e Legenda Cósmica */}
+        {/* Painel Contextual de Inspeção do Grafo de Conhecimento 3D */}
         <div className="z-20 shrink-0 p-2 lg:h-full lg:p-3">
           <SpaceInspectorPanel
             metadata={graphData.metadata}
@@ -1176,7 +1530,9 @@ export default function SpotifyConstellationGraph() {
             onFocusNode={flyCameraToNode}
             onCloseSelection={() => {
               setSelectedNode(null);
+              selectedNodeRef.current = null;
               setHoverNode(null);
+              hoverNodeRef.current = null;
             }}
             recentPlanets={recentPlanets}
             visibleNodes={filteredGraph.nodes}
