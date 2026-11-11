@@ -2,11 +2,11 @@
 
 import React, { useMemo, useCallback, useState, useRef, useEffect } from "react";
 import {
-  Globe,
+  Network,
   Compass,
   Radio,
   Sparkles,
-  Orbit,
+  Share2,
   ExternalLink,
   X,
   Eye,
@@ -19,20 +19,101 @@ import {
   ChevronUp,
   Activity,
   Music,
-  Maximize2
+  Maximize2,
 } from "lucide-react";
-import { buildNodeProvenanceProfile, decomposeEdgeWeight } from "../../lib/spaceGraphModel.js";
+import {
+  buildNodeProvenanceProfile,
+  decomposeEdgeWeight,
+  computePlanetVisualProps,
+} from "../../lib/spaceGraphModel.js";
 
 /**
- * SpaceInspectorPanel
+ * Computes proportional listening metrics for the Inspector panel with deterministic fallbacks.
+ */
+function deriveInspectorListeningMetrics(node, metadata, graphMode) {
+  if (!node || typeof node !== "object") {
+    return {
+      listeningCount: 1,
+      listeningRank: null,
+      listeningRatio: 0.5,
+      listeningRatioPct: "50.0%",
+      diameter: "14.00",
+      radius: "7.00",
+      maxDiameter: graphMode === "bipartite" ? "24.00" : "28.00",
+    };
+  }
+
+  const isGenre = node.node_type === "genre";
+  const baseProps = computePlanetVisualProps(node, metadata || {}, graphMode, []);
+
+  const rawCount =
+    node.listening_count ??
+    node.play_count ??
+    baseProps.listening_count ??
+    (isGenre
+      ? node.connected_artists_count ?? baseProps.connectedArtistsCount ?? 1
+      : Math.max(
+          1,
+          Math.round(
+            (Number(node.affinity_score) || 0.5) * 100 +
+              (Number(node.global_popularity) || 50) * 0.2
+          )
+        ));
+  const listeningCount = Math.max(1, Math.round(Number(rawCount) || 1));
+
+  const listeningRank =
+    node.listening_rank ?? baseProps.listening_rank ?? node.affinity_rank ?? 1;
+
+  const D_max = isGenre ? 30.0 : graphMode === "bipartite" ? 24.0 : 28.0;
+  const rawRatio =
+    node.listening_ratio ??
+    baseProps.listening_ratio ??
+    Math.min(1.0, Math.max(0.05, (Number(baseProps.radius) || 7.0) / (D_max / 2)));
+  const listeningRatio = Math.min(1.0, Math.max(0.01, Number(rawRatio) || 0.5));
+
+  const rawDiameter =
+    node.diameter ??
+    baseProps.diameter ??
+    Number((D_max * listeningRatio).toFixed(2));
+  const diameterNum = Number(rawDiameter) || Number((D_max * listeningRatio).toFixed(2));
+  const radiusNum = diameterNum / 2;
+
+  return {
+    listeningCount,
+    listeningRank,
+    listeningRatio,
+    listeningRatioPct: `${(listeningRatio * 100).toFixed(1)}%`,
+    diameter: diameterNum.toFixed(2),
+    radius: radiusNum.toFixed(2),
+    maxDiameter: D_max.toFixed(2),
+  };
+}
+
+/**
+ * Formats cluster label replacing legacy spatial names with Graphify Cluster terminology.
+ */
+function formatClusterLabel(cluster, fallbackId = 0) {
+  if (cluster?.dominant_genres?.[0]) {
+    return `Cluster ${cluster.dominant_genres[0]}`;
+  }
+  if (typeof cluster?.label === "string" && cluster.label.trim()) {
+    return cluster.label
+      .replace(/^Constelação\s+/i, "Cluster ")
+      .replace(/^Sistema\s+/i, "Cluster ");
+  }
+  return `Cluster #${fallbackId + 1}`;
+}
+
+/**
+ * SpaceInspectorPanel — Graphify 3D Knowledge Graph Contextual Inspector
  *
- * Contextual Inspector Sidebar for BeatCode Space:
- * - Topological Telemetry (Modularity Q, Bridge Artist, planet/trajectory stats)
- * - Stellar Systems / Constellations (Louvain clusters with focus & visibility controls)
- * - Recent Exploration History (revisitable planet chips)
- * - Cosmic Legend (explaining celestial radii, atmospheres, rings, and trajectories)
- * - Detailed Planet / Core Inspector (with strict [DADO SPOTIFY] vs [INFERÊNCIA BEATCODE] separation,
- *   4-attribute edge breakdown 0.65g + 0.25c + 0.10t + shared_genres, and 1-hop / 2-hop harmonic navigation).
+ * - Topological Telemetry (Modularity Q, Bridge Artist, visible nodes & edges)
+ * - Proportional Listening Sizing Metrics (L_i, #listening_rank, L_i/L_max %, D_i = D_max * (L_i / L_max))
+ * - Louvain Clusters with focus & visibility toggles
+ * - Accessible Node List & Recent History
+ * - Graphify 3D Knowledge Graph Legend
+ * - Detailed Node Inspector with strict [DADO SPOTIFY] vs [INFERÊNCIA BEATCODE] separation,
+ *   4-attribute edge breakdown (0.65g + 0.25c + 0.10t + shared_genres), and 1-hop / 2-hop harmonic navigation.
  */
 export function SpaceInspectorPanel({
   metadata = null,
@@ -59,7 +140,7 @@ export function SpaceInspectorPanel({
     catalog: false,
     history: false,
     directConnections: false,
-    indirectConnections: false
+    indirectConnections: false,
   });
 
   useEffect(() => {
@@ -71,21 +152,29 @@ export function SpaceInspectorPanel({
   const toggleSection = useCallback((sectionKey) => {
     setCollapsedSections((prev) => ({
       ...prev,
-      [sectionKey]: !prev[sectionKey]
+      [sectionKey]: !prev[sectionKey],
     }));
   }, []);
 
-  const isClusterHidden = useCallback((clusterId) => {
-    if (!hiddenClusters) return false;
-    if (hiddenClusters instanceof Set) return hiddenClusters.has(clusterId);
-    if (Array.isArray(hiddenClusters)) return hiddenClusters.includes(clusterId);
-    return false;
-  }, [hiddenClusters]);
+  const isClusterHidden = useCallback(
+    (clusterId) => {
+      if (!hiddenClusters) return false;
+      if (hiddenClusters instanceof Set) return hiddenClusters.has(clusterId);
+      if (Array.isArray(hiddenClusters)) return hiddenClusters.includes(clusterId);
+      return false;
+    },
+    [hiddenClusters]
+  );
 
   const provenanceProfile = useMemo(() => {
     if (!selectedNode) return null;
     return buildNodeProvenanceProfile(selectedNode, graphMode);
   }, [selectedNode, graphMode]);
+
+  const listeningMetrics = useMemo(
+    () => deriveInspectorListeningMetrics(selectedNode, metadata, graphMode),
+    [selectedNode, metadata, graphMode]
+  );
 
   const directConnections = neighborhood?.directConnections || [];
   const indirectConnections = neighborhood?.indirectConnections || [];
@@ -101,30 +190,30 @@ export function SpaceInspectorPanel({
   const bridgeArtist = metadata?.bridge_artist || null;
   const clusters = Array.isArray(metadata?.clusters) ? metadata.clusters : [];
 
-  const visiblePlanetsCount = stats?.visibleNodes ?? metadata?.total_nodes ?? 0;
-  const visibleLinksCount = stats?.visibleLinks ?? metadata?.total_edges ?? 0;
+  const visibleNodesCount = stats?.visibleNodes ?? metadata?.total_nodes ?? 0;
+  const visibleLinksCount = stats?.visibleLinks ?? metadata?.total_edges ?? metadata?.total_links ?? 0;
 
   return (
     <aside
       className="space-hud-glass w-full lg:w-[410px] max-w-full flex flex-col h-full overflow-hidden text-zinc-100 rounded-2xl border border-zinc-800/80 shadow-2xl transition-all duration-300"
       data-testid="space-inspector-panel"
       role="region"
-      aria-label="Painel de Inspeção Espacial"
+      aria-label="Painel de Inspeção do Grafo 3D"
     >
       {/* Top Header Bar */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800/70 bg-zinc-950/60 backdrop-blur-md">
         <div className="flex items-center gap-2.5">
           <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
-            <Compass className="w-4 h-4" />
+            <Network className="w-4 h-4" />
           </div>
           <div>
             <h2 className="text-xs font-bold tracking-wider uppercase text-zinc-200">
-              Observatório BeatCode
+              Inspetor Graphify 3D
             </h2>
             <p className="text-[10px] text-zinc-400">
               {graphMode === "bipartite"
                 ? "Grafo Bipartido · Artistas ↔ Gêneros"
-                : "Topologia Cósmica · Afinidade Gravitacional"}
+                : "Grafo de Conhecimento 3D · Proporção de Escutas"}
             </p>
           </div>
         </div>
@@ -135,10 +224,12 @@ export function SpaceInspectorPanel({
               type="button"
               onClick={onToggleLegend}
               className={`space-camera-dock-btn text-[11px] gap-1 px-2 py-1 h-7 ${
-                showLegend ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300" : ""
+                showLegend
+                  ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
+                  : ""
               }`}
-              title={showLegend ? "Recolher Legenda Cósmica" : "Abrir Legenda Cósmica"}
-              aria-label="Alternar Legenda Cósmica"
+              title={showLegend ? "Recolher Legenda do Grafo" : "Abrir Legenda do Grafo"}
+              aria-label="Alternar Legenda do Grafo"
             >
               <BookOpen className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Legenda</span>
@@ -150,8 +241,8 @@ export function SpaceInspectorPanel({
               type="button"
               onClick={onCloseSelection}
               className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/80 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-500"
-              title="Fechar detalhes do astro"
-              aria-label="Fechar detalhes do astro"
+              title="Fechar detalhes do nó"
+              aria-label="Fechar detalhes do nó"
             >
               <X className="w-4 h-4" />
             </button>
@@ -164,15 +255,14 @@ export function SpaceInspectorPanel({
         ref={scrollBodyRef}
         className="flex-1 overflow-y-auto divide-y divide-zinc-800/60"
       >
-
-        {/* 1. Selected Planet/Core Details (When active) */}
+        {/* 1. Selected Node Details (When active) */}
         {selectedNode && provenanceProfile ? (
           <section
             className="p-4 space-y-5 bg-zinc-950/40"
             data-testid="planet-inspector-details"
-            aria-label="Dossiê do Astro Selecionado"
+            aria-label="Dossiê do Nó Selecionado"
           >
-            {/* Header: Node Identity & Orbit Centering Actions */}
+            {/* Header: Node Identity & Focus Actions */}
             <div className="space-y-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
@@ -191,7 +281,7 @@ export function SpaceInspectorPanel({
                       style={{
                         backgroundColor: `${selectedNode.color || "#1DB954"}22`,
                         borderColor: selectedNode.color || "#1DB954",
-                        color: selectedNode.color || "#1DB954"
+                        color: selectedNode.color || "#1DB954",
                       }}
                     >
                       {selectedNode.node_type === "genre" ? (
@@ -209,14 +299,14 @@ export function SpaceInspectorPanel({
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-[11px] font-medium text-zinc-400">
                         {selectedNode.node_type === "genre" ? (
-                          <span className="text-sky-400">Núcleo Estelar · Gênero</span>
+                          <span className="text-sky-400">Hub Semântico · Gênero</span>
                         ) : (
-                          <span className="text-emerald-400">Planeta · Artista</span>
+                          <span className="text-emerald-400">Nó do Grafo · Artista</span>
                         )}
                       </span>
                       {selectedNode.cluster_id !== undefined && (
                         <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-300 font-mono">
-                          Constelação #{selectedNode.cluster_id}
+                          Cluster #{selectedNode.cluster_id}
                         </span>
                       )}
                     </div>
@@ -229,10 +319,10 @@ export function SpaceInspectorPanel({
                       type="button"
                       onClick={() => onFocusNode(selectedNode)}
                       className="space-camera-dock-btn px-2 py-1 text-[11px] gap-1 h-7 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/20"
-                      title="Centralizar câmera na órbita deste astro"
+                      title="Centralizar câmera neste nó"
                     >
                       <Crosshair className="w-3.5 h-3.5" />
-                      <span>Focar Órbita</span>
+                      <span>Foco no Nó</span>
                     </button>
                   )}
                   {onCloseSelection && (
@@ -250,7 +340,7 @@ export function SpaceInspectorPanel({
               </div>
             </div>
 
-            {/* SECTION A: Measured Spotify Source Data */}
+            {/* SECTION A: Measured Spotify Source Data & Listening Metrics */}
             <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-emerald-500/20 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="space-badge-spotify text-[10px]">
@@ -273,18 +363,30 @@ export function SpaceInspectorPanel({
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80">
                   <span className="block text-[10px] text-zinc-400 uppercase tracking-wider">
-                    Posição no Perfil
+                    Escutas Registradas (L_i)
                   </span>
-                  <span className="font-semibold text-emerald-400 text-sm">
-                    {provenanceProfile.raw.spotify.affinity_rank
-                      ? `#${provenanceProfile.raw.spotify.affinity_rank}`
-                      : "Sem ranking"}
+                  <span className="font-mono font-bold text-emerald-400 text-sm">
+                    {listeningMetrics.listeningCount}{" "}
+                    <span className="text-[10px] font-normal text-zinc-400">
+                      {selectedNode.node_type === "genre" ? "artistas" : "escutas"}
+                    </span>
                   </span>
                 </div>
 
                 <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80">
                   <span className="block text-[10px] text-zinc-400 uppercase tracking-wider">
-                    Popularidade Global
+                    Ranking de Escuta
+                  </span>
+                  <span className="font-mono font-bold text-emerald-400 text-sm">
+                    {listeningMetrics.listeningRank
+                      ? `#${listeningMetrics.listeningRank}`
+                      : "Sem ranking"}
+                  </span>
+                </div>
+
+                <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80 col-span-2">
+                  <span className="block text-[10px] text-zinc-400 uppercase tracking-wider">
+                    Popularidade Global Spotify
                   </span>
                   <div className="flex items-center gap-2 mt-0.5">
                     <span className="font-semibold text-zinc-200 text-sm">
@@ -293,7 +395,9 @@ export function SpaceInspectorPanel({
                     <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-emerald-500 rounded-full"
-                        style={{ width: `${provenanceProfile.raw.spotify.global_popularity}%` }}
+                        style={{
+                          width: `${provenanceProfile.raw.spotify.global_popularity}%`,
+                        }}
                       />
                     </div>
                   </div>
@@ -305,7 +409,7 @@ export function SpaceInspectorPanel({
                 provenanceProfile.raw.spotify.genres.length > 0 && (
                   <div className="space-y-1.5">
                     <span className="text-[10px] font-semibold tracking-wider text-zinc-400 uppercase">
-                      Gêneros Catalogados
+                      Gêneros Associados
                     </span>
                     <div className="flex flex-wrap gap-1">
                       {provenanceProfile.raw.spotify.genres.map((genre, idx) => (
@@ -329,35 +433,43 @@ export function SpaceInspectorPanel({
                       Faixas Principais no Perfil
                     </span>
                     <ul className="space-y-1">
-                      {provenanceProfile.raw.spotify.top_tracks.slice(0, 4).map((track, idx) => {
-                        const trackName = typeof track === "string" ? track : track?.name || "Faixa";
-                        const albumImg = typeof track === "object" ? track?.album_image || track?.album?.images?.[0]?.url : null;
-                        return (
-                          <li
-                            key={idx}
-                            className="flex items-center gap-2 text-[11px] p-1.5 rounded-md bg-zinc-950/50 border border-zinc-800/60 text-zinc-300"
-                          >
-                            {albumImg ? (
-                              <img
-                                src={albumImg}
-                                alt={trackName}
-                                className="w-5 h-5 rounded object-cover shrink-0"
-                              />
-                            ) : (
-                              <div className="w-5 h-5 rounded bg-zinc-800 flex items-center justify-center text-[9px] text-zinc-400 shrink-0">
-                                {idx + 1}
-                              </div>
-                            )}
-                            <span className="truncate">{trackName}</span>
-                          </li>
-                        );
-                      })}
+                      {provenanceProfile.raw.spotify.top_tracks
+                        .slice(0, 4)
+                        .map((track, idx) => {
+                          const trackName =
+                            typeof track === "string"
+                              ? track
+                              : track?.name || "Faixa";
+                          const albumImg =
+                            typeof track === "object"
+                              ? track?.album_image || track?.album?.images?.[0]?.url
+                              : null;
+                          return (
+                            <li
+                              key={idx}
+                              className="flex items-center gap-2 text-[11px] p-1.5 rounded-md bg-zinc-950/50 border border-zinc-800/60 text-zinc-300"
+                            >
+                              {albumImg ? (
+                                <img
+                                  src={albumImg}
+                                  alt={trackName}
+                                  className="w-5 h-5 rounded object-cover shrink-0"
+                                />
+                              ) : (
+                                <div className="w-5 h-5 rounded bg-zinc-800 flex items-center justify-center text-[9px] text-zinc-400 shrink-0">
+                                  {idx + 1}
+                                </div>
+                              )}
+                              <span className="truncate">{trackName}</span>
+                            </li>
+                          );
+                        })}
                     </ul>
                   </div>
                 )}
             </div>
 
-            {/* SECTION B: BeatCode Topological Inferences */}
+            {/* SECTION B: BeatCode Topological Inferences & Proportional 3D Dimension */}
             <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-sky-500/20 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="space-badge-inferred text-[10px]">
@@ -365,19 +477,29 @@ export function SpaceInspectorPanel({
                   [INFERÊNCIA BEATCODE]
                 </span>
                 <span className="text-[10px] text-zinc-400 font-mono">
-                  Topologia Louvain + k-NN
+                  D_i = D_max × (L_i / L_max)
                 </span>
               </div>
 
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80">
                   <span className="block text-[10px] text-zinc-400 uppercase tracking-wider">
-                    Score Afinidade
+                    Proporção (L_i / L_max)
                   </span>
-                  <span className="font-semibold text-sky-400 text-sm">
-                    {provenanceProfile.raw.inferences.affinity_score !== null
-                      ? `${(provenanceProfile.raw.inferences.affinity_score * 100).toFixed(1)}%`
-                      : "—"}
+                  <span className="font-mono font-bold text-sky-400 text-sm">
+                    {listeningMetrics.listeningRatioPct}
+                  </span>
+                </div>
+
+                <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80">
+                  <span className="block text-[10px] text-zinc-400 uppercase tracking-wider">
+                    Dimensão 3D (D_i)
+                  </span>
+                  <span className="font-mono font-bold text-emerald-300 text-sm">
+                    {listeningMetrics.diameter}{" "}
+                    <span className="text-[10px] font-normal text-zinc-400">
+                      (R={listeningMetrics.radius})
+                    </span>
                   </span>
                 </div>
 
@@ -401,10 +523,21 @@ export function SpaceInspectorPanel({
 
                 <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80">
                   <span className="block text-[10px] text-zinc-400 uppercase tracking-wider">
-                    Constelação
+                    Score Afinidade
+                  </span>
+                  <span className="font-semibold text-sky-400 text-sm">
+                    {provenanceProfile.raw.inferences.affinity_score !== null
+                      ? `${(provenanceProfile.raw.inferences.affinity_score * 100).toFixed(1)}%`
+                      : "—"}
+                  </span>
+                </div>
+
+                <div className="bg-zinc-950/60 p-2 rounded-lg border border-zinc-800/80">
+                  <span className="block text-[10px] text-zinc-400 uppercase tracking-wider">
+                    Cluster Louvain
                   </span>
                   <span className="font-semibold text-sky-300 text-sm">
-                    Sistema #{provenanceProfile.raw.inferences.cluster_id}
+                    Cluster #{provenanceProfile.raw.inferences.cluster_id}
                   </span>
                 </div>
               </div>
@@ -412,9 +545,11 @@ export function SpaceInspectorPanel({
               {/* Genre-Specific Connected Artists Count */}
               {selectedNode.node_type === "genre" && (
                 <div className="p-2 rounded-lg bg-sky-950/30 border border-sky-500/30 text-xs text-sky-200 flex items-center justify-between">
-                  <span className="text-[11px]">Artistas conectados a este hub:</span>
+                  <span className="text-[11px]">Artistas conectados a este gênero:</span>
                   <span className="font-bold text-sm">
-                    {provenanceProfile.raw.inferences.connected_artists_count ?? 1}
+                    {provenanceProfile.raw.inferences.connected_artists_count ??
+                      directConnections.length ??
+                      1}
                   </span>
                 </div>
               )}
@@ -428,7 +563,7 @@ export function SpaceInspectorPanel({
                 className="w-full flex items-center justify-between text-left py-1 text-xs font-bold tracking-wider uppercase text-zinc-300 hover:text-white transition-colors"
               >
                 <div className="flex items-center gap-1.5">
-                  <Orbit className="w-3.5 h-3.5 text-emerald-400" />
+                  <Share2 className="w-3.5 h-3.5 text-emerald-400" />
                   <span>Conexões Diretas 1-Hop ({directConnections.length})</span>
                 </div>
                 {collapsedSections.directConnections ? (
@@ -442,13 +577,14 @@ export function SpaceInspectorPanel({
                 <div className="space-y-2">
                   {directConnections.length === 0 ? (
                     <p className="text-xs text-zinc-500 italic p-3 bg-zinc-900/30 rounded-xl border border-zinc-800/60">
-                      Nenhum vizinho direto visível com o filtro de arestas atual.
+                      Nenhum nó vizinho direto visível com o limiar de arestas atual.
                     </p>
                   ) : (
                     directConnections.map((conn, idx) => {
                       const decomp =
-                        conn.decomposition || (conn.link ? decomposeEdgeWeight(conn.link, graphMode) : null);
-                      const neighborNode = conn.node;
+                        conn.decomposition ||
+                        (conn.link ? decomposeEdgeWeight(conn.link, graphMode) : null);
+                      const neighborNode = conn.node || { id: conn.nodeId, name: conn.nodeId };
                       const neighborName = neighborNode?.name || conn.nodeId;
                       const comps = decomp?.components;
 
@@ -457,13 +593,16 @@ export function SpaceInspectorPanel({
 
                       if (decomp?.genreMatchType === "exact_and_subtoken_match") {
                         genreBadgeLabel = "Match Exato + Sub-token";
-                        genreBadgeColor = "bg-emerald-500/15 text-emerald-300 border-emerald-500/40";
+                        genreBadgeColor =
+                          "bg-emerald-500/15 text-emerald-300 border-emerald-500/40";
                       } else if (decomp?.genreMatchType === "subtoken_lexical_match") {
                         genreBadgeLabel = "Match Léxico Sub-token";
-                        genreBadgeColor = "bg-sky-500/15 text-sky-300 border-sky-500/40";
+                        genreBadgeColor =
+                          "bg-sky-500/15 text-sky-300 border-sky-500/40";
                       } else if (decomp?.genreMatchType === "artist_genre_membership") {
                         genreBadgeLabel = "Afiliação de Gênero";
-                        genreBadgeColor = "bg-amber-500/15 text-amber-300 border-amber-500/40";
+                        genreBadgeColor =
+                          "bg-amber-500/15 text-amber-300 border-amber-500/40";
                       }
 
                       return (
@@ -474,7 +613,9 @@ export function SpaceInspectorPanel({
                           <div className="flex items-center justify-between gap-2">
                             <button
                               type="button"
-                              onClick={() => neighborNode && onSelectNode && onSelectNode(neighborNode)}
+                              onClick={() =>
+                                onSelectNode && onSelectNode(neighborNode || conn.nodeId)
+                              }
                               className="text-left font-semibold text-xs text-zinc-100 hover:text-emerald-400 truncate transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-emerald-500"
                               title={`Selecionar ${neighborName}`}
                             >
@@ -507,13 +648,16 @@ export function SpaceInspectorPanel({
                                 <div className="flex justify-between text-zinc-400">
                                   <span>Gênero (0.65g)</span>
                                   <span className="font-mono text-emerald-400">
-                                    C_g = {comps.C_g?.toFixed(4)} ({Math.round(comps.genre_similarity * 100)}%)
+                                    C_g = {comps.C_g?.toFixed(4)} (
+                                    {Math.round(comps.genre_similarity * 100)}%)
                                   </span>
                                 </div>
                                 <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
                                   <div
                                     className="h-full bg-emerald-500 rounded-full"
-                                    style={{ width: `${Math.round(comps.genre_similarity * 100)}%` }}
+                                    style={{
+                                      width: `${Math.round(comps.genre_similarity * 100)}%`,
+                                    }}
                                   />
                                 </div>
                               </div>
@@ -523,13 +667,18 @@ export function SpaceInspectorPanel({
                                 <div className="flex justify-between text-zinc-400">
                                   <span>Colaboração (0.25c)</span>
                                   <span className="font-mono text-sky-400">
-                                    C_c = {comps.C_c?.toFixed(4)} ({Math.round(comps.direct_collaboration * 100)}%)
+                                    C_c = {comps.C_c?.toFixed(4)} (
+                                    {Math.round(comps.direct_collaboration * 100)}%)
                                   </span>
                                 </div>
                                 <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
                                   <div
                                     className="h-full bg-sky-500 rounded-full"
-                                    style={{ width: `${Math.round(comps.direct_collaboration * 100)}%` }}
+                                    style={{
+                                      width: `${Math.round(
+                                        comps.direct_collaboration * 100
+                                      )}%`,
+                                    }}
                                   />
                                 </div>
                               </div>
@@ -539,13 +688,16 @@ export function SpaceInspectorPanel({
                                 <div className="flex justify-between text-zinc-400">
                                   <span>Audição (0.10t)</span>
                                   <span className="font-mono text-amber-400">
-                                    C_t = {comps.C_t?.toFixed(4)} ({Math.round(comps.co_listening * 100)}%)
+                                    C_t = {comps.C_t?.toFixed(4)} (
+                                    {Math.round(comps.co_listening * 100)}%)
                                   </span>
                                 </div>
                                 <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
                                   <div
                                     className="h-full bg-amber-500 rounded-full"
-                                    style={{ width: `${Math.round(comps.co_listening * 100)}%` }}
+                                    style={{
+                                      width: `${Math.round(comps.co_listening * 100)}%`,
+                                    }}
                                   />
                                 </div>
                               </div>
@@ -604,7 +756,7 @@ export function SpaceInspectorPanel({
                     </p>
                   ) : (
                     indirectConnections.map((item, idx) => {
-                      const destNode = item.node;
+                      const destNode = item.node || { id: item.nodeId, name: item.nodeId };
                       const destName = destNode?.name || item.nodeId;
                       const scorePct = Number((item.relevanceScore || 0) * 100).toFixed(1);
 
@@ -616,7 +768,9 @@ export function SpaceInspectorPanel({
                           <div className="flex items-center justify-between gap-2">
                             <button
                               type="button"
-                              onClick={() => destNode && onSelectNode && onSelectNode(destNode)}
+                              onClick={() =>
+                                onSelectNode && onSelectNode(destNode || item.nodeId)
+                              }
                               className="text-left font-semibold text-xs text-zinc-200 hover:text-sky-400 truncate transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-sky-500"
                               title={`Navegar para ${destName}`}
                             >
@@ -640,7 +794,10 @@ export function SpaceInspectorPanel({
                                     <button
                                       key={`${b.bridgeId}-${bIdx}`}
                                       type="button"
-                                      onClick={() => b.bridgeNode && onSelectNode && onSelectNode(b.bridgeNode)}
+                                      onClick={() =>
+                                        onSelectNode &&
+                                        onSelectNode(b.bridgeNode || b.bridgeId)
+                                      }
                                       className="px-2 py-0.5 rounded bg-zinc-800/90 text-zinc-300 hover:text-emerald-300 hover:bg-zinc-700/80 transition-colors border border-zinc-700/60 font-medium"
                                       title={`Selecionar ponte ${bridgeName}`}
                                     >
@@ -663,20 +820,20 @@ export function SpaceInspectorPanel({
           /* Empty selection prompt */
           <div className="p-4 text-center space-y-2 bg-zinc-950/20">
             <div className="inline-flex p-3 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
-              <Globe className="w-5 h-5 animate-pulse" />
+              <Network className="w-5 h-5" />
             </div>
             <h3 className="text-xs font-bold text-zinc-200 tracking-wide uppercase">
-              Selecione um Planeta ou Estrela
+              Selecione um Nó (Artista ou Gênero)
             </h3>
             <p className="text-[11px] text-zinc-400 max-w-xs mx-auto leading-relaxed">
-              Clique em qualquer astro no espaço cósmico ou utilize o histórico e as constelações abaixo
-              para inspecionar dados do Spotify, inferências e a física gravitacional de 4 atributos.
+              Clique em qualquer nó no Grafo 3D ou utilize os clusters e a lista abaixo para
+              inspecionar escutas proporcionais, dados do Spotify e arestas de 4 atributos.
             </p>
           </div>
         )}
 
         {/* 2. Global Topological Telemetry */}
-        <section className="p-4 space-y-3" aria-label="Telemetria Topológica da Galáxia">
+        <section className="p-4 space-y-3" aria-label="Telemetria Topológica do Grafo">
           <button
             type="button"
             onClick={() => toggleSection("telemetry")}
@@ -684,7 +841,7 @@ export function SpaceInspectorPanel({
           >
             <div className="flex items-center gap-1.5">
               <Activity className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Telemetria da Galáxia</span>
+              <span>Telemetria da Rede Completa</span>
             </div>
             {collapsedSections.telemetry ? (
               <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
@@ -714,16 +871,16 @@ export function SpaceInspectorPanel({
                   </span>
                 </div>
 
-                {/* Visible Trajectories Card */}
+                {/* Visible Edges Card */}
                 <div className="p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800/80 space-y-1">
                   <span className="block text-[10px] text-zinc-400 uppercase tracking-wider font-semibold">
-                    Trajetórias Visíveis
+                    Arestas Visíveis
                   </span>
                   <span className="block font-mono text-base font-bold text-emerald-400">
                     {visibleLinksCount}
                   </span>
                   <span className="block text-[9px] text-zinc-500">
-                    {visiblePlanetsCount} astros em cena
+                    {visibleNodesCount} nós ativos
                   </span>
                 </div>
               </div>
@@ -733,7 +890,7 @@ export function SpaceInspectorPanel({
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-zinc-400 uppercase tracking-wider font-semibold flex items-center gap-1">
                     <Radio className="w-3 h-3 text-amber-400" />
-                    Artista Ponte (Maior Inter-Cluster)
+                    Nó Ponte (Maior Intermediação Inter-Cluster)
                   </span>
                   <span className="space-badge-inferred text-[9px] px-1.5 py-0.2">
                     [INFERÊNCIA BEATCODE]
@@ -754,14 +911,14 @@ export function SpaceInspectorPanel({
                         {bridgeArtist.name}
                       </span>
                       <span className="block text-[10px] text-zinc-400">
-                        Clique para viajar até esta ponte cósmica
+                        Clique para focar neste nó ponte do grafo
                       </span>
                     </div>
                     <Crosshair className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
                   </button>
                 ) : (
                   <p className="text-[11px] text-zinc-500 italic">
-                    Nenhum artista ponte destacado na topologia atual.
+                    Nenhum nó ponte destacado na topologia atual.
                   </p>
                 )}
               </div>
@@ -769,8 +926,8 @@ export function SpaceInspectorPanel({
           )}
         </section>
 
-        {/* 3. Stellar Systems / Constellations List */}
-        <section className="p-4 space-y-3" aria-label="Sistemas Estelares e Constelações">
+        {/* 3. Louvain Clusters List */}
+        <section className="p-4 space-y-3" aria-label="Clusters da Rede">
           <button
             type="button"
             onClick={() => toggleSection("constellations")}
@@ -778,7 +935,7 @@ export function SpaceInspectorPanel({
           >
             <div className="flex items-center gap-1.5">
               <Layers className="w-3.5 h-3.5 text-sky-400" />
-              <span>Sistemas Estelares / Constelações ({clusters.length})</span>
+              <span>Clusters Louvain ({clusters.length})</span>
             </div>
             {collapsedSections.constellations ? (
               <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
@@ -791,7 +948,7 @@ export function SpaceInspectorPanel({
             <div className="space-y-2 pt-1">
               {clusters.length === 0 ? (
                 <p className="text-xs text-zinc-500 italic p-3 bg-zinc-900/30 rounded-xl border border-zinc-800/60">
-                  Nenhum sistema estelar detectado.
+                  Nenhum cluster detectado.
                 </p>
               ) : (
                 clusters.map((cluster) => {
@@ -799,11 +956,7 @@ export function SpaceInspectorPanel({
                   const isHidden = isClusterHidden(clusterId);
                   const isFocused = focusedClusterId === clusterId;
                   const clusterColor = cluster.color || "#10B981";
-                  const label =
-                    cluster.label ||
-                    (cluster.dominant_genres?.[0]
-                      ? `Constelação ${cluster.dominant_genres[0]}`
-                      : `Sistema ${clusterId + 1}`);
+                  const label = formatClusterLabel(cluster, clusterId);
 
                   return (
                     <div
@@ -820,7 +973,7 @@ export function SpaceInspectorPanel({
                         type="button"
                         onClick={() => onFocusCluster && onFocusCluster(cluster)}
                         className="flex items-center gap-2.5 text-left flex-1 truncate mr-2 focus-visible:outline focus-visible:outline-1 focus-visible:outline-emerald-500"
-                        title={`Focar câmera no sistema estelar ${label}`}
+                        title={`Focar câmera no ${label}`}
                       >
                         <span
                           className="w-3 h-3 rounded-full shrink-0 shadow-sm"
@@ -835,7 +988,7 @@ export function SpaceInspectorPanel({
                             {label}
                           </span>
                           <span className="block text-[10px] text-zinc-400 font-mono">
-                            {cluster.artist_count || 0} astros
+                            {cluster.artist_count || 0} nós
                           </span>
                         </div>
                       </button>
@@ -849,14 +1002,16 @@ export function SpaceInspectorPanel({
                               ? "bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300"
                               : "bg-zinc-800 text-zinc-300 border-zinc-700 hover:text-white hover:bg-zinc-700"
                           }`}
-                          title={isHidden ? "Exibir constelação" : "Ocultar constelação"}
+                          title={isHidden ? "Exibir cluster" : "Ocultar cluster"}
                           aria-label={
-                            isHidden
-                              ? `Exibir constelação ${label}`
-                              : `Ocultar constelação ${label}`
+                            isHidden ? `Exibir ${label}` : `Ocultar ${label}`
                           }
                         >
-                          {isHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          {isHidden ? (
+                            <EyeOff className="w-3.5 h-3.5" />
+                          ) : (
+                            <Eye className="w-3.5 h-3.5" />
+                          )}
                         </button>
                       )}
                     </div>
@@ -867,11 +1022,11 @@ export function SpaceInspectorPanel({
           )}
         </section>
 
-        {/* 4. Accessible Textual Planet/Star Catalog (WCAG 2.2 AA Alternative to 3D Canvas) */}
+        {/* 4. Accessible Textual Node Catalog (WCAG 2.2 AA Alternative to 3D Canvas) */}
         {Array.isArray(visibleNodes) && visibleNodes.length > 0 && (
           <section
             className="p-4 space-y-3"
-            aria-label="Catálogo Textual Acessível de Astros"
+            aria-label="Catálogo Textual Acessível de Nós"
             data-testid="accessible-planet-list"
           >
             <button
@@ -881,8 +1036,8 @@ export function SpaceInspectorPanel({
               className="w-full flex items-center justify-between text-left text-xs font-bold tracking-wider uppercase text-zinc-300 hover:text-white transition-colors"
             >
               <div className="flex items-center gap-1.5">
-                <Globe className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Exploração por Lista ({visibleNodes.length} astros)</span>
+                <Network className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Catálogo de Nós ({visibleNodes.length} nós)</span>
               </div>
               {collapsedSections.catalog ? (
                 <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
@@ -894,12 +1049,13 @@ export function SpaceInspectorPanel({
             {!collapsedSections.catalog && (
               <div
                 role="list"
-                aria-label="Lista de planetas e núcleos estelares visíveis"
+                aria-label="Lista de nós de artistas e gêneros visíveis"
                 className="max-h-48 overflow-y-auto space-y-1.5 pr-1 pt-1"
               >
                 {visibleNodes.slice(0, 30).map((nodeItem) => {
                   const isCurrent = selectedNode?.id === nodeItem.id;
                   const isGenre = nodeItem.node_type === "genre";
+                  const rank = nodeItem.listening_rank ?? nodeItem.affinity_rank;
                   return (
                     <div key={nodeItem.id} role="listitem">
                       <button
@@ -924,9 +1080,9 @@ export function SpaceInspectorPanel({
                         <span className="shrink-0 text-[10px] font-mono text-zinc-400">
                           {isGenre
                             ? `Gênero · ${nodeItem.connected_artists_count ?? 1}`
-                            : nodeItem.affinity_rank
-                            ? `#${nodeItem.affinity_rank}`
-                            : "Planeta"}
+                            : rank
+                            ? `#${rank}`
+                            : "Artista"}
                         </span>
                       </button>
                     </div>
@@ -939,7 +1095,7 @@ export function SpaceInspectorPanel({
 
         {/* 5. Recent Exploration History */}
         {recentPlanets && recentPlanets.length > 0 && (
-          <section className="p-4 space-y-3" aria-label="Histórico de Exploração Recente">
+          <section className="p-4 space-y-3" aria-label="Histórico de Nós Visitados">
             <button
               type="button"
               onClick={() => toggleSection("history")}
@@ -947,7 +1103,7 @@ export function SpaceInspectorPanel({
             >
               <div className="flex items-center gap-1.5">
                 <History className="w-3.5 h-3.5 text-amber-400" />
-                <span>Astros Visitados Recentemente ({recentPlanets.length})</span>
+                <span>Nós Visitados Recentemente ({recentPlanets.length})</span>
               </div>
               {collapsedSections.history ? (
                 <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
@@ -985,72 +1141,78 @@ export function SpaceInspectorPanel({
           </section>
         )}
 
-        {/* 5. Cosmic Legend (Visual Encodings) */}
+        {/* 6. Graphify 3D Knowledge Graph Legend */}
         {showLegend && (
-          <section className="p-4 space-y-3 bg-zinc-950/40" aria-label="Legenda Cósmica">
+          <section
+            className="p-4 space-y-3 bg-zinc-950/40"
+            aria-label="Legenda do Grafo de Conhecimento 3D"
+          >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 text-xs font-bold tracking-wider uppercase text-zinc-300">
                 <BookOpen className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Legenda Cósmica BeatCode</span>
+                <span>Legenda do Grafo 3D (Graphify)</span>
               </div>
             </div>
 
             <div className="space-y-3 text-xs text-zinc-300">
-              {/* Planetas */}
+              {/* Nós de Artistas */}
               <div className="p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800/80 space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="w-3 h-3 rounded-full bg-emerald-500 border border-emerald-300 shrink-0 shadow-sm" />
                   <span className="font-semibold text-zinc-200">
-                    Planetas (Artistas)
+                    Nós de Artistas (Esferas 3D)
                   </span>
                 </div>
                 <p className="text-[11px] text-zinc-400 leading-relaxed">
-                  Raio R_planet proporcional à massa composta M = 0.55S_aff + 0.30P_glob + 0.15C_D.
-                  Texturas fotográficas do perfil Spotify ou procedurais cósmicas.
+                  Dimensão proporcional às escutas: D_i = D_max × (L_i / L_max), onde o
+                  artista mais ouvido define 100% da escala (D_max) e os demais são
+                  escalados pela razão exata L_i / L_max.
                 </p>
               </div>
 
-              {/* Núcleos Estelares */}
+              {/* Hubs de Gêneros */}
               <div className="p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800/80 space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="w-3 h-3 rotate-45 bg-sky-400 border border-sky-200 shrink-0 shadow-sm" />
                   <span className="font-semibold text-zinc-200">
-                    Núcleos Estelares (Gêneros Bipartidos)
+                    Hubs Semânticos (Gêneros · Poliedros 3D)
                   </span>
                 </div>
                 <p className="text-[11px] text-zinc-400 leading-relaxed">
-                  Geometria octaédrica emissiva com raio R_star = 5.0 + 10.0 · min(1.0, k_g / 12.0),
-                  derivado da contagem de artistas associados ao hub musical.
+                  Geometria poliédrica facetada com raio proporcional à incidência de
+                  escuta/artistas conectados: R_g = D_g / 2 = R_max,genre × (L_g / L_max,genre).
                 </p>
               </div>
 
-              {/* Halo & Anéis Orbitais */}
+              {/* Clusters Louvain */}
               <div className="p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800/80 space-y-1">
                 <div className="flex items-center gap-2">
                   <div className="w-3.5 h-3.5 rounded-full border-2 border-amber-400 flex items-center justify-center shrink-0">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
                   </div>
                   <span className="font-semibold text-zinc-200">
-                    Halo Atmosférico e Anéis Orbitais
+                    Clusters & Nó Ponte
                   </span>
                 </div>
                 <p className="text-[11px] text-zinc-400 leading-relaxed">
-                  Corona atmosférica indexada pela radiação cultural Φ = 0.70√C_B + 0.30C_D.
-                  Anel orbital destacado concedido ao Artista Ponte ou com diversidade inter-cluster ≥ 30%.
+                  Cores identificam comunidades detectadas por modularidade Louvain (Q). O Nó
+                  Ponte destaca o artista com maior centralidade de intermediação (C_B) entre
+                  clusters.
                 </p>
               </div>
 
-              {/* Trajetórias Luminosas */}
+              {/* Arestas Ponderadas */}
               <div className="p-2.5 rounded-xl bg-zinc-900/60 border border-zinc-800/80 space-y-1">
                 <div className="flex items-center gap-2">
                   <div className="w-4 h-0.5 bg-gradient-to-r from-emerald-400 via-sky-400 to-amber-400 rounded-full shrink-0" />
                   <span className="font-semibold text-zinc-200">
-                    Trajetórias Luminosas (Arestas de Afinidade)
+                    Arestas Ponderadas (4 Atributos)
                   </span>
                 </div>
                 <p className="text-[11px] text-zinc-400 leading-relaxed">
-                  Espessura e brilho regidos pela fórmula W = 0.65g + 0.25c + 0.10t, combinada com
-                  a classificação qualitativa de sobreposição lexical (shared_genres).
+                  Espessura e opacidade regidas pela fórmula W = 0.65g + 0.25c + 0.10t,
+                  combinada com a classificação qualitativa de gêneros compartilhados
+                  (shared_genres).
                 </p>
               </div>
             </div>

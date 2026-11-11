@@ -3,14 +3,13 @@
 import React from "react";
 import {
   Search,
-  Orbit,
+  Network,
   Map as MapIcon,
   ZoomIn,
   ZoomOut,
   Crosshair,
   Compass,
   RotateCw,
-  Sparkles,
   EyeOff,
   BookOpen,
   X,
@@ -36,39 +35,35 @@ const NODE_TYPE_OPTIONS = [
 ];
 
 const VIEW_MODE_OPTIONS = [
-  { key: "space_3d", label: "3D Espacial", Icon: Orbit },
-  { key: "map_2d", label: "2D Mapa", Icon: MapIcon },
+  { key: "space_3d", label: "Grafo 3D", Icon: Network },
+  { key: "map_2d", label: "Mapa 2D", Icon: MapIcon },
 ];
 
 function resolveDepthBadge(explorationDepth, selectedNode) {
   const fallback = deriveExplorationDepth({ selectedNode });
-  if (!explorationDepth) {
-    return fallback;
-  }
+  const rawCode =
+    typeof explorationDepth === "object" && explorationDepth !== null
+      ? explorationDepth.code || fallback.code
+      : String(explorationDepth || fallback.code).trim();
 
-  if (typeof explorationDepth === "object" && explorationDepth !== null) {
-    const code = explorationDepth.code || fallback.code;
-    const label =
-      explorationDepth.label ||
-      (code === "planet_orbit"
-        ? "Órbita Planetária"
-        : code === "star_system"
-        ? "Sistema Estelar"
-        : "Universo");
-    return { code, label };
+  if (
+    rawCode === "planet_orbit" ||
+    rawCode === "node_focus" ||
+    rawCode === "Órbita Planetária" ||
+    rawCode === "Foco no Nó" ||
+    Boolean(selectedNode)
+  ) {
+    return { code: "planet_orbit", label: "Foco no Nó" };
   }
-
-  const raw = String(explorationDepth).trim();
-  if (raw === "planet_orbit" || raw === "Órbita Planetária") {
-    return { code: "planet_orbit", label: "Órbita Planetária" };
+  if (
+    rawCode === "star_system" ||
+    rawCode === "cluster" ||
+    rawCode === "Sistema Estelar" ||
+    rawCode === "Cluster"
+  ) {
+    return { code: "star_system", label: "Cluster" };
   }
-  if (raw === "star_system" || raw === "Sistema Estelar") {
-    return { code: "star_system", label: "Sistema Estelar" };
-  }
-  if (raw === "universe" || raw === "Universo") {
-    return { code: "universe", label: "Universo" };
-  }
-  return { code: "custom", label: raw || fallback.label };
+  return { code: "universe", label: "Rede Completa" };
 }
 
 export function SpaceHudControls({
@@ -93,7 +88,7 @@ export function SpaceHudControls({
   onResetOverview,
   onZoomIn,
   onZoomOut,
-  visualEffects = { starfield: true, orbital_rings: true, reduced_motion: false },
+  visualEffects = { starfield: false, orbital_rings: false, reduced_motion: false },
   onToggleVisualEffect,
   autoRotate = false,
   onToggleAutoRotate,
@@ -112,7 +107,6 @@ export function SpaceHudControls({
   const trimmedSearch = typeof searchQuery === "string" ? searchQuery.trim() : "";
   const matchesList = Array.isArray(searchMatches) ? searchMatches.slice(0, 8) : [];
   const isReducedMotion = Boolean(visualEffects?.reduced_motion);
-  const isOrbitalRingsOn = visualEffects?.orbital_rings !== false;
 
   const handleLeave = () => {
     if (isDemo) {
@@ -126,12 +120,12 @@ export function SpaceHudControls({
 
   return (
     <>
-      {/* Barra Superior Compacta — Observatory HUD */}
+      {/* Barra Superior Compacta — Graphify 3D Knowledge Graph HUD */}
       <header
         className="space-hud-glass relative z-30 flex shrink-0 flex-wrap items-center gap-2.5 border-b border-zinc-800/80 px-3 py-2.5 sm:px-5"
-        aria-label="Cabine de observação BeatCode Space"
+        aria-label="Controles do Grafo de Conhecimento 3D BeatCode"
       >
-        {/* Identidade + Badge de Profundidade */}
+        {/* Identidade + Badge de Escala de Inspeção */}
         <div className="flex items-center gap-2 pr-1">
           <span
             className={`h-2.5 w-2.5 rounded-full bg-[#1DB954] shadow-[0_0_12px_#1DB954] ${
@@ -140,16 +134,16 @@ export function SpaceHudControls({
             aria-hidden="true"
           />
           <span className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-100">
-            BeatCode <span className="text-[#1DB954]">Space</span>
+            BeatCode <span className="text-[#1DB954]">Graphify 3D</span>
           </span>
           <span className="hidden text-[11px] text-zinc-400 xl:inline">
-            / {isDemo ? "demonstração" : "minha galáxia"}
+            / {isDemo ? "demonstração" : "rede de escutas"}
           </span>
           <span
             data-testid="exploration-depth-badge"
             aria-live="polite"
             className="ml-1 inline-flex items-center gap-1.5 rounded-full border border-sky-400/35 bg-sky-950/50 px-2.5 py-0.5 text-[11px] font-semibold tracking-wide text-sky-300"
-            title="Escala astronômica de exploração ativa"
+            title="Escala ativa de navegação no grafo"
           >
             <span className="h-1.5 w-1.5 rounded-full bg-sky-400" aria-hidden="true" />
             {depthInfo.label}
@@ -211,7 +205,7 @@ export function SpaceHudControls({
         {/* Slider de Limiar de Aresta */}
         <div className="flex items-center gap-2 rounded-lg border border-zinc-800/80 bg-zinc-950/70 px-2.5 py-1">
           <label htmlFor="edge-threshold" className="text-xs text-zinc-300 whitespace-nowrap">
-            Limiar:{" "}
+            Arestas:{" "}
             <strong className="font-mono text-zinc-100 tabular-nums">
               {safeMinWeight.toFixed(2)}
             </strong>
@@ -224,12 +218,12 @@ export function SpaceHudControls({
             step="0.02"
             value={safeMinWeight}
             onChange={(e) => onMinEdgeWeightChange?.(parseFloat(e.target.value))}
-            aria-label="Limiar mínimo de força da trajetória"
+            aria-label="Limiar mínimo de peso das arestas"
             className="w-20 cursor-pointer accent-[#1DB954] sm:w-24"
           />
         </div>
 
-        {/* Busca Espacial com Atalho "/" e Dropdown Rápido */}
+        {/* Busca de Nós com Atalho "/" e Dropdown Rápido */}
         <div className="relative flex items-center">
           <Search
             className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-zinc-400"
@@ -240,8 +234,8 @@ export function SpaceHudControls({
             type="search"
             value={searchQuery}
             onChange={(e) => onSearchQueryChange?.(e.target.value)}
-            placeholder="Buscar planeta ou gênero (/)"
-            aria-label="Buscar planeta ou gênero"
+            placeholder="Buscar nó: artista ou gênero (/)"
+            aria-label="Buscar nó: artista ou gênero"
             className="h-8 w-44 rounded-lg border border-zinc-800 bg-zinc-950/90 pl-8 pr-7 text-xs text-zinc-100 placeholder:text-zinc-500 focus:border-[#1DB954] sm:w-52"
           />
           {trimmedSearch.length > 0 ? (
@@ -265,7 +259,7 @@ export function SpaceHudControls({
           {trimmedSearch.length > 0 && (
             <div
               role="listbox"
-              aria-label="Resultados rápidos da busca espacial"
+              aria-label="Resultados rápidos da busca no grafo"
               className="space-hud-glass absolute left-0 top-9 z-40 max-h-64 w-64 overflow-y-auto rounded-xl p-1.5 shadow-2xl"
             >
               {matchesList.length > 0 ? (
@@ -287,13 +281,13 @@ export function SpaceHudControls({
                       <span className="truncate font-medium">{node.name}</span>
                     </span>
                     <span className="shrink-0 rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] uppercase text-zinc-400">
-                      {node.node_type === "genre" ? "Gênero" : "Planeta"}
+                      {node.node_type === "genre" ? "Gênero" : "Artista"}
                     </span>
                   </button>
                 ))
               ) : (
                 <div className="px-2.5 py-2 text-xs text-zinc-400">
-                  Nenhum planeta ou gênero encontrado.
+                  Nenhum nó de artista ou gênero encontrado.
                 </div>
               )}
             </div>
@@ -304,7 +298,7 @@ export function SpaceHudControls({
         <div
           className="flex rounded-lg border border-zinc-800 bg-zinc-950/90 p-0.5"
           role="group"
-          aria-label="Filtrar por tipo de astro"
+          aria-label="Filtrar por tipo de nó"
         >
           {NODE_TYPE_OPTIONS.map((nt) => {
             const active = nodeTypeFilter === nt.key;
@@ -326,12 +320,12 @@ export function SpaceHudControls({
           })}
         </div>
 
-        {/* Alternador 3D Espacial vs 2D Mapa + Ação de Sessão */}
+        {/* Alternador Grafo 3D vs Mapa 2D + Ação de Sessão */}
         <div className="ml-auto flex items-center gap-2">
           <div
             className="flex rounded-lg border border-zinc-800 bg-zinc-950/90 p-0.5"
             role="group"
-            aria-label="Alternar visualização 3D ou 2D"
+            aria-label="Alternar visualização Grafo 3D ou Mapa 2D"
           >
             {VIEW_MODE_OPTIONS.map(({ key, label, Icon }) => {
               const active = viewMode === key;
@@ -389,9 +383,9 @@ export function SpaceHudControls({
         </div>
       )}
 
-      {/* Doca Flutuante de Controles de Câmera 360° e Efeitos */}
+      {/* Doca Flutuante de Controles de Câmera 3D e Visualização */}
       <nav
-        aria-label="Controles de câmera 360° e visualização espacial"
+        aria-label="Controles de câmera do Grafo 3D"
         data-testid="space-camera-dock"
         className="space-hud-glass pointer-events-auto fixed bottom-4 left-4 z-30 flex flex-wrap items-center gap-1.5 rounded-2xl p-1.5"
       >
@@ -421,27 +415,27 @@ export function SpaceHudControls({
           type="button"
           onClick={() => onCenterSelected?.()}
           disabled={!selectedNode}
-          aria-label="Centralizar Planeta"
+          aria-label="Foco no Nó"
           title={
             selectedNode
-              ? `Centralizar câmera em ${selectedNode.name}`
-              : "Selecione um planeta para centralizar"
+              ? `Centralizar câmera no nó ${selectedNode.name}`
+              : "Selecione um nó para centralizar"
           }
           className="space-camera-dock-btn gap-1"
         >
           <Crosshair className="h-3.5 w-3.5" aria-hidden="true" />
-          <span>Centralizar Planeta</span>
+          <span>Foco no Nó</span>
         </button>
 
         <button
           type="button"
           onClick={() => onResetOverview?.()}
-          aria-label="Visão Geral do Universo"
-          title="Restaurar enquadramento panorâmico do universo"
+          aria-label="Rede Completa"
+          title="Restaurar enquadramento da Rede Completa"
           className="space-camera-dock-btn gap-1"
         >
           <Compass className="h-3.5 w-3.5" aria-hidden="true" />
-          <span>Visão Geral do Universo</span>
+          <span>Rede Completa</span>
         </button>
 
         <button
@@ -449,11 +443,11 @@ export function SpaceHudControls({
           onClick={() => onToggleAutoRotate?.()}
           aria-pressed={Boolean(autoRotate)}
           disabled={isReducedMotion}
-          aria-label="Auto-Órbita"
+          aria-label="Rotação 360°"
           title={
             isReducedMotion
-              ? "Auto-órbita desativada no modo Movimento Reduzido"
-              : "Alternar rotação orbital 360° automática"
+              ? "Rotação 360° desativada no modo Movimento Reduzido"
+              : "Alternar rotação 360° automática do grafo"
           }
           className={`space-camera-dock-btn gap-1 ${
             autoRotate && !isReducedMotion
@@ -462,23 +456,7 @@ export function SpaceHudControls({
           }`}
         >
           <RotateCw className="h-3.5 w-3.5" aria-hidden="true" />
-          <span>Auto-Órbita</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => onToggleVisualEffect?.("orbital_rings")}
-          aria-pressed={isOrbitalRingsOn}
-          aria-label="Anéis Orbitais"
-          title="Exibir ou ocultar anéis orbitais dos planetas-ponte"
-          className={`space-camera-dock-btn gap-1 ${
-            isOrbitalRingsOn
-              ? "border-sky-400/50 bg-sky-950/50 text-sky-300"
-              : ""
-          }`}
-        >
-          <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-          <span>Anéis Orbitais</span>
+          <span>Rotação 360°</span>
         </button>
 
         <button
@@ -486,7 +464,7 @@ export function SpaceHudControls({
           onClick={() => onToggleVisualEffect?.("reduced_motion")}
           aria-pressed={isReducedMotion}
           aria-label="Movimento Reduzido"
-          title="Desativar animações de voo de câmera, rotação e partículas"
+          title="Desativar animações de transição de câmera, rotação e partículas"
           className={`space-camera-dock-btn gap-1 ${
             isReducedMotion
               ? "border-amber-400/60 bg-amber-950/60 text-amber-300"
@@ -501,8 +479,8 @@ export function SpaceHudControls({
           type="button"
           onClick={() => onToggleLegend?.()}
           aria-pressed={Boolean(showLegend)}
-          aria-label="Legenda Cósmica"
-          title="Abrir ou fechar a Legenda Cósmica"
+          aria-label="Legenda do Grafo"
+          title="Abrir ou fechar a Legenda do Grafo 3D"
           className={`space-camera-dock-btn gap-1 ${
             showLegend
               ? "border-emerald-500/60 bg-emerald-950/60 text-emerald-300"
@@ -510,7 +488,7 @@ export function SpaceHudControls({
           }`}
         >
           <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
-          <span>Legenda Cósmica</span>
+          <span>Legenda do Grafo</span>
         </button>
       </nav>
     </>

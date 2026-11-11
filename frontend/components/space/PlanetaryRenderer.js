@@ -1,10 +1,15 @@
 /**
- * PlanetaryRenderer.js — Three.js 3D Cosmic Space Renderer & GPU Lifecycle Guard
+ * PlanetaryRenderer.js — Graphify-Inspired 3D Knowledge Graph Renderer & GPU Lifecycle Guard
  *
- * Implements procedural planetary spheres with equatorial bands, Spotify photo textures,
- * atmospheric Fresnel halos, tilted orbital rings, octahedron genre stellar cores,
- * crisp LOD label sprites, cosmic starfield, 3D cluster forces, WebGL context guard,
- * and deterministic GPU resource disposal.
+ * Renders clean 3D Knowledge Graph nodes inspired by Graphify:
+ * - Artists: high-contrast satin 3D spheres (THREE.SphereGeometry) with exact radius
+ *   R_i = D_i / 2 = R_max * (L_i / L_max) proportional to listening counts.
+ * - Genres: faceted 3D polyhedra (THREE.OctahedronGeometry) with exact radius
+ *   R_g = D_g / 2 = R_max,genre * (L_g / L_max,genre).
+ * - Invisible raycast hit-sphere (hitRadius = Math.max(radius, 4.5), opacity: 0, transparent: true)
+ *   so lower-listening nodes remain effortless to hover and click without distorting visible proportion.
+ * - Readable label sprite (createNodeLabelSprite) displaying node name and listening count/ratio.
+ * - Deterministic GPU resource registry and disposal (disposeThreeUniverse).
  */
 
 /* global document */
@@ -32,135 +37,259 @@ export function createResourceRegistry() {
 }
 
 /**
- * Procedurally generates an equatorial banded canvas texture for a planet.
+ * Resolves listening metrics (L_i, ratio L_i / L_max, rank, diameter D_i) from node and visualProps.
  *
- * @param {string} colorHex
- * @param {string} name
- * @returns {HTMLCanvasElement|null}
+ * @param {Object} node
+ * @param {Object} props
+ * @returns {{ listeningCount: number, listeningRatio: number, listeningRank: number|null, diameter: number, radius: number }}
  */
-function createProceduralPlanetCanvas(colorHex, name) {
-  if (typeof document === "undefined") return null;
+export function resolveNodeListeningMetrics(node = {}, props = {}) {
+  const isGenre =
+    node?.node_type === "genre" ||
+    props?.nodeType === "genre" ||
+    props?.geometryType === "star_core" ||
+    props?.geometryType === "genre_polyhedron";
 
-  const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 256;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return canvas;
+  const radius =
+    Number.isFinite(props?.radius) && props.radius > 0
+      ? Number(props.radius)
+      : isGenre
+      ? 7.5
+      : 5.0;
 
-  const validColor = sanitizeNodeColor(colorHex);
+  const diameter = Number.isFinite(props?.diameter)
+    ? Number(props.diameter)
+    : Number((radius * 2).toFixed(2));
 
-  // Deep space base gradient
-  const bgGrad = ctx.createLinearGradient(0, 0, 0, 256);
-  bgGrad.addColorStop(0, validColor);
-  bgGrad.addColorStop(0.5, "#0b1320");
-  bgGrad.addColorStop(1, validColor);
-  ctx.fillStyle = bgGrad;
-  ctx.fillRect(0, 0, 512, 256);
+  const rawCount =
+    node?.listening_count ??
+    node?.play_count ??
+    props?.listening_count ??
+    props?.listeningCount ??
+    (isGenre
+      ? node?.connected_artists_count ?? props?.connectedArtistsCount ?? 1
+      : Math.max(1, Math.round((Number(node?.affinity_score) || 0.5) * 100)));
 
-  // Equatorial and temperate latitude bands
-  const bandCount = 14;
-  for (let i = 0; i < bandCount; i++) {
-    const y = (256 / bandCount) * i;
-    const h = 256 / bandCount;
-    const alpha = 0.12 + 0.16 * Math.sin((i / bandCount) * Math.PI);
-    ctx.fillStyle =
-      i % 2 === 0
-        ? `rgba(255, 255, 255, ${alpha.toFixed(3)})`
-        : `rgba(0, 0, 0, ${alpha.toFixed(3)})`;
+  const listeningCount = Math.max(1, Math.round(Number(rawCount) || 1));
 
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    for (let x = 0; x <= 512; x += 32) {
-      const wave = Math.sin((x / 512) * Math.PI * 4 + i) * 3;
-      ctx.lineTo(x, y + wave);
-    }
-    ctx.lineTo(512, y + h);
-    ctx.lineTo(0, y + h);
-    ctx.closePath();
-    ctx.fill();
-  }
+  const maxRadiusRef = isGenre ? 15.0 : 14.0;
+  const rawRatio =
+    node?.listening_ratio ??
+    props?.listening_ratio ??
+    props?.listeningRatio ??
+    Math.min(1.0, Math.max(0.05, radius / maxRadiusRef));
 
-  // Subtle monogram mark on polar axis
-  if (name && typeof name === "string") {
-    const cleanName = sanitizeNodeName(name);
-    const initial = cleanName.charAt(0).toUpperCase();
-    ctx.fillStyle = "rgba(255, 255, 255, 0.22)";
-    ctx.font = "bold 32px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(initial, 256, 128);
-  }
+  const listeningRatio = Math.min(1.0, Math.max(0.01, Number(rawRatio) || 0.5));
 
-  return canvas;
+  const listeningRank =
+    node?.listening_rank ??
+    props?.listening_rank ??
+    node?.affinity_rank ??
+    null;
+
+  return {
+    listeningCount,
+    listeningRatio,
+    listeningRank,
+    diameter,
+    radius,
+  };
 }
 
 /**
- * Procedurally generates a crisp dark-glass pill label canvas for a planet or stellar core.
+ * Generates a clean satin node surface texture (retained for import/test compatibility,
+ * free of planetary latitude bands).
+ *
+ * @param {string} colorHex
+ * @param {string} name
+ * @param {Object|null} resourceRegistry
+ * @returns {THREE.Texture}
+ */
+export function createProceduralPlanetTexture(
+  colorHex,
+  name = "",
+  resourceRegistry = null
+) {
+  void name;
+  const validColor = sanitizeNodeColor(colorHex);
+  let texture = null;
+
+  if (typeof document !== "undefined") {
+    const canvas = document.createElement("canvas");
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      const grad = ctx.createRadialGradient(48, 42, 8, 64, 64, 64);
+      grad.addColorStop(0, "#ffffff");
+      grad.addColorStop(0.28, validColor);
+      grad.addColorStop(1, "#090d16");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 128, 128);
+    }
+    texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+  } else {
+    texture = new THREE.DataTexture(new Uint8Array([29, 185, 84, 255]), 1, 1);
+    texture.needsUpdate = true;
+  }
+
+  if (texture && resourceRegistry?.textures) {
+    resourceRegistry.textures.add(texture);
+  }
+  return texture;
+}
+
+/**
+ * Creates a crisp, high-contrast Graphify label canvas with node name and listening count/ratio.
  *
  * @param {string} name
  * @param {string} colorHex
+ * @param {string} subtitleText
  * @returns {HTMLCanvasElement|null}
  */
-function createProceduralLabelCanvas(name, colorHex) {
+function createGraphifyLabelCanvas(name, colorHex, subtitleText = "") {
   if (typeof document === "undefined") return null;
 
   const canvas = document.createElement("canvas");
-  canvas.width = 256;
-  canvas.height = 64;
+  canvas.width = 320;
+  canvas.height = 80;
   const ctx = canvas.getContext("2d");
   if (!ctx) return canvas;
 
-  ctx.clearRect(0, 0, 256, 64);
+  ctx.clearRect(0, 0, 320, 80);
 
   const validColor = sanitizeNodeColor(colorHex);
   const cleanName = sanitizeNodeName(name);
 
-  // Glassmorphic pill container
   const rx = 8;
   const ry = 8;
-  const rw = 240;
-  const rh = 48;
-  const radius = 14;
+  const rw = 304;
+  const rh = 64;
+  const cornerRadius = 12;
 
   ctx.beginPath();
-  ctx.moveTo(rx + radius, ry);
-  ctx.lineTo(rx + rw - radius, ry);
-  ctx.quadraticCurveTo(rx + rw, ry, rx + rw, ry + radius);
-  ctx.lineTo(rx + rw, ry + rh - radius);
-  ctx.quadraticCurveTo(rx + rw, ry + rh, rx + rw - radius, ry + rh);
-  ctx.lineTo(rx + radius, ry + rh);
-  ctx.quadraticCurveTo(rx, ry + rh, rx, ry + rh - radius);
-  ctx.lineTo(rx, ry + radius);
-  ctx.quadraticCurveTo(rx, ry, rx + radius, ry);
+  ctx.moveTo(rx + cornerRadius, ry);
+  ctx.lineTo(rx + rw - cornerRadius, ry);
+  ctx.quadraticCurveTo(rx + rw, ry, rx + rw, ry + cornerRadius);
+  ctx.lineTo(rx + rw, ry + rh - cornerRadius);
+  ctx.quadraticCurveTo(rx + rw, ry + rh, rx + rw - cornerRadius, ry + rh);
+  ctx.lineTo(rx + cornerRadius, ry + rh);
+  ctx.quadraticCurveTo(rx, ry + rh, rx, ry + rh - cornerRadius);
+  ctx.lineTo(rx, ry + cornerRadius);
+  ctx.quadraticCurveTo(rx, ry, rx + cornerRadius, ry);
   ctx.closePath();
 
-  ctx.fillStyle = "rgba(10, 15, 30, 0.78)";
+  ctx.fillStyle = "rgba(9, 13, 22, 0.88)";
   ctx.fill();
   ctx.strokeStyle = validColor;
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Label text with truncation
-  ctx.fillStyle = "#ffffff";
+  const displayTitle =
+    cleanName.length > 22 ? `${cleanName.slice(0, 20)}…` : cleanName;
+
+  ctx.fillStyle = "#f8fafc";
   ctx.font =
-    "600 20px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    "700 20px Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
+  ctx.fillText(displayTitle, 160, subtitleText ? 30 : 40);
 
-  const display = cleanName.length > 20 ? `${cleanName.slice(0, 18)}…` : cleanName;
-  ctx.fillText(display, 128, 32);
+  if (subtitleText) {
+    ctx.fillStyle = "#94a3b8";
+    ctx.font =
+      "600 14px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+    ctx.fillText(subtitleText, 160, 54);
+  }
 
   return canvas;
 }
 
 /**
- * Creates a Three.js 3D object for a celestial graph node (planet or genre stellar core).
+ * Creates a readable Three.js Sprite label for a 3D knowledge graph node,
+ * displaying node name and listening count/ratio.
+ *
+ * @param {Object} node
+ * @param {Object} visualProps
+ * @param {Object|null} resourceRegistry
+ * @returns {THREE.Sprite}
+ */
+export function createNodeLabelSprite(
+  node = {},
+  visualProps = {},
+  resourceRegistry = null
+) {
+  const safeName = sanitizeNodeName(node?.name || visualProps?.name);
+  const nodeColor = sanitizeNodeColor(visualProps?.color || node?.color);
+  const isGenre =
+    node?.node_type === "genre" ||
+    visualProps?.nodeType === "genre" ||
+    visualProps?.geometryType === "star_core";
+
+  const metrics = resolveNodeListeningMetrics(node, visualProps);
+  const pctText = `${Math.round(metrics.listeningRatio * 100)}%`;
+  const subtitle = `${metrics.listeningCount} escutas · ${pctText}`;
+
+  const labelMat = new THREE.SpriteMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.94,
+    depthWrite: false,
+  });
+
+  if (resourceRegistry?.materials) {
+    resourceRegistry.materials.add(labelMat);
+  }
+
+  if (typeof document !== "undefined") {
+    const labelCanvas = createGraphifyLabelCanvas(
+      isGenre ? `#${safeName}` : safeName,
+      nodeColor,
+      subtitle
+    );
+    if (labelCanvas) {
+      const labelTex = new THREE.CanvasTexture(labelCanvas);
+      if (resourceRegistry?.textures) {
+        resourceRegistry.textures.add(labelTex);
+      }
+      labelMat.map = labelTex;
+    }
+  }
+
+  const labelSprite = new THREE.Sprite(labelMat);
+  if (resourceRegistry?.sprites) {
+    resourceRegistry.sprites.add(labelSprite);
+  }
+
+  const radius = metrics.radius;
+  labelSprite.position.set(0, radius + 3.4, 0);
+  labelSprite.scale.set(17, 4.25, 1);
+  labelSprite.userData = {
+    isLabelSprite: true,
+    subtitle,
+    listeningCount: metrics.listeningCount,
+    listeningRatio: metrics.listeningRatio,
+  };
+
+  return labelSprite;
+}
+
+/**
+ * Creates a Graphify-style 3D Knowledge Graph node object.
+ * - Artists: clean 3D sphere (THREE.SphereGeometry) with high-contrast satin finish in cluster color
+ *   and exact radius = props.radius (R_i = D_i / 2 = R_max * (L_i / L_max)).
+ * - Genres: clean faceted 3D polyhedron (THREE.OctahedronGeometry) with exact radius = props.radius.
+ * - Invisible raycast hit-sphere (hitRadius = Math.max(radius, 4.5), opacity: 0, transparent: true)
+ *   for effortless hover/click on low-listening nodes without altering visible proportion.
+ * - Readable label sprite with name and listening count/proportion.
  *
  * @param {Object} node Graph node data
  * @param {Object|null} visualProps Precomputed visual properties or null
- * @param {Object} options Configuration options (metadata, graphMode, links, orbitalRings)
+ * @param {Object} options Configuration options (metadata, graphMode, links)
  * @param {Object|null} resourceRegistry Optional resource tracker
- * @returns {THREE.Group} Group holding meshes, halos, rings, and label sprite
+ * @returns {THREE.Group}
  */
 export function createPlanetObject3D(
   node = {},
@@ -181,14 +310,6 @@ export function createPlanetObject3D(
   const safeName = sanitizeNodeName(node?.name);
   const escapedName = escapeHtml(safeName);
 
-  group.userData = {
-    nodeId: node?.id,
-    visualProps: finalVisualProps,
-    node,
-    escapedName,
-  };
-
-  // Helper registration callbacks
   const trackGeometry = (geo) => {
     if (geo && resourceRegistry?.geometries) {
       resourceRegistry.geometries.add(geo);
@@ -203,247 +324,140 @@ export function createPlanetObject3D(
     return mat;
   };
 
-  const trackTexture = (tex) => {
-    if (tex && resourceRegistry?.textures) {
-      resourceRegistry.textures.add(tex);
-    }
-    return tex;
+  const nodeColor = sanitizeNodeColor(finalVisualProps.color || node?.color);
+  const isGenre =
+    node?.node_type === "genre" ||
+    finalVisualProps.nodeType === "genre" ||
+    finalVisualProps.geometryType === "star_core" ||
+    finalVisualProps.geometryType === "genre_polyhedron";
+
+  const radius =
+    Number.isFinite(finalVisualProps.radius) && finalVisualProps.radius > 0
+      ? Number(finalVisualProps.radius)
+      : isGenre
+      ? 7.5
+      : 5.0;
+
+  const metrics = resolveNodeListeningMetrics(node, {
+    ...finalVisualProps,
+    radius,
+  });
+
+  group.userData = {
+    nodeId: node?.id,
+    nodeType: isGenre ? "genre" : "artist",
+    visualProps: {
+      ...finalVisualProps,
+      radius,
+      diameter: metrics.diameter,
+      listening_count: metrics.listeningCount,
+      listening_ratio: metrics.listeningRatio,
+      listening_rank: metrics.listeningRank,
+    },
+    node,
+    escapedName,
   };
 
-  const trackSprite = (spr) => {
-    if (spr && resourceRegistry?.sprites) {
-      resourceRegistry.sprites.add(spr);
-    }
-    return spr;
-  };
-
-  const nodeColor = sanitizeNodeColor(finalVisualProps.color);
-  const isStarCore = finalVisualProps.geometryType === "star_core";
-
-  if (isStarCore) {
-    // 1. Emissive Polyhedral Stellar Core (Genre Hub in Bipartite Mode)
-    const coreRadius = Number.isFinite(finalVisualProps.radius)
-      ? finalVisualProps.radius
-      : 8.0;
-    const coreGeo = trackGeometry(new THREE.OctahedronGeometry(coreRadius, 1));
-    const coreMat = trackMaterial(
+  // 1. Primary Graphify 3D Node Mesh (exact proportional radius)
+  if (isGenre) {
+    const genreGeo = trackGeometry(new THREE.OctahedronGeometry(radius, 1));
+    const genreMat = trackMaterial(
       new THREE.MeshStandardMaterial({
         color: nodeColor,
         emissive: nodeColor,
-        emissiveIntensity: 0.75,
-        roughness: 0.2,
-        metalness: 0.3,
+        emissiveIntensity: 0.32,
+        roughness: 0.25,
+        metalness: 0.2,
+        flatShading: true,
       })
     );
-    const coreMesh = new THREE.Mesh(coreGeo, coreMat);
-    group.add(coreMesh);
+    const genreMesh = new THREE.Mesh(genreGeo, genreMat);
+    genreMesh.userData = {
+      isPrimaryNodeMesh: true,
+      geometryKind: "polyhedron",
+      radius,
+    };
+    group.add(genreMesh);
   } else {
-    // 2. Spherical Planetary Body (Artist Node)
-    const planetRadius = Number.isFinite(finalVisualProps.radius)
-      ? finalVisualProps.radius
-      : 4.5;
-    const planetGeo = trackGeometry(
-      new THREE.SphereGeometry(planetRadius, 24, 24)
-    );
-
-    let planetTexture = null;
-
-    if (typeof document !== "undefined") {
-      // Browser environment: procedural canvas texture with fallback
-      const canvas = createProceduralPlanetCanvas(nodeColor, safeName);
-      if (canvas) {
-        planetTexture = trackTexture(new THREE.CanvasTexture(canvas));
-        planetTexture.wrapS = THREE.ClampToEdgeWrapping;
-        planetTexture.wrapT = THREE.ClampToEdgeWrapping;
-      }
-    } else {
-      // Node.js test environment (e.g., C11 memory disposal verification)
-      planetTexture = trackTexture(
-        new THREE.DataTexture(new Uint8Array([29, 185, 84, 255]), 1, 1)
-      );
-      planetTexture.needsUpdate = true;
-    }
-
-    const planetMat = trackMaterial(
+    const artistGeo = trackGeometry(new THREE.SphereGeometry(radius, 28, 28));
+    const artistMat = trackMaterial(
       new THREE.MeshStandardMaterial({
         color: nodeColor,
-        map: planetTexture,
-        roughness: 0.6,
+        emissive: nodeColor,
+        emissiveIntensity: 0.2,
+        roughness: 0.34,
         metalness: 0.15,
       })
     );
-
-    // If Spotify image_url is available in browser, load it with automatic fallback
-    if (typeof document !== "undefined" && node?.image_url) {
-      try {
-        const loader = new THREE.TextureLoader();
-        loader.setCrossOrigin("anonymous");
-        loader.load(
-          node.image_url,
-          (loadedTexture) => {
-            trackTexture(loadedTexture);
-            planetMat.map = loadedTexture;
-            planetMat.color.setHex(0xffffff);
-            planetMat.needsUpdate = true;
-          },
-          undefined,
-          () => {
-            // Keep procedural canvas texture on error/CORS block
-          }
-        );
-      } catch {
-        // Safe fallback
-      }
-    }
-
-    const planetMesh = new THREE.Mesh(planetGeo, planetMat);
-    group.add(planetMesh);
+    const artistMesh = new THREE.Mesh(artistGeo, artistMat);
+    artistMesh.userData = {
+      isPrimaryNodeMesh: true,
+      geometryKind: "sphere",
+      radius,
+    };
+    group.add(artistMesh);
   }
 
-  // 3. Atmospheric Fresnel Halo
-  const haloRadius = Number.isFinite(finalVisualProps.haloRadius)
-    ? finalVisualProps.haloRadius
-    : (finalVisualProps.radius || 4.5) * 1.3;
-  const haloOpacity = Number.isFinite(finalVisualProps.haloOpacity)
-    ? finalVisualProps.haloOpacity
-    : 0.25;
-
-  const haloGeo = trackGeometry(
-    new THREE.SphereGeometry(haloRadius, 20, 20)
-  );
-  const haloMat = trackMaterial(
+  // 2. Invisible Raycast Hit-Sphere (hitRadius = Math.max(radius, 4.5))
+  // Guarantees small nodes remain easy to hover/click without distorting visible proportion
+  const hitRadius = Math.max(radius, 4.5);
+  const hitGeo = trackGeometry(new THREE.SphereGeometry(hitRadius, 12, 12));
+  const hitMat = trackMaterial(
     new THREE.MeshBasicMaterial({
       color: nodeColor,
       transparent: true,
-      opacity: haloOpacity,
+      opacity: 0,
       depthWrite: false,
-      side: THREE.BackSide,
     })
   );
-  const haloMesh = new THREE.Mesh(haloGeo, haloMat);
-  group.add(haloMesh);
+  const hitMesh = new THREE.Mesh(hitGeo, hitMat);
+  hitMesh.userData = {
+    isHitSphere: true,
+    hitRadius,
+    visibleRadius: radius,
+  };
+  group.add(hitMesh);
 
-  // 4. Orbital Ring (for Bridge Artists or High Inter-Cluster Diversity)
-  const allowRings = options.orbitalRings !== false;
-  if (finalVisualProps.hasOrbitalRing && allowRings) {
-    const ringInner = Number.isFinite(finalVisualProps.ringInnerRadius)
-      ? finalVisualProps.ringInnerRadius
-      : (finalVisualProps.radius || 4.5) * 1.35;
-    const ringOuter = Number.isFinite(finalVisualProps.ringOuterRadius)
-      ? finalVisualProps.ringOuterRadius
-      : (finalVisualProps.radius || 4.5) * 2.05;
-
-    const ringGeo = trackGeometry(
-      new THREE.RingGeometry(ringInner, ringOuter, 32)
-    );
-    const ringMat = trackMaterial(
-      new THREE.MeshBasicMaterial({
-        color: nodeColor,
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.55,
-      })
-    );
-    const ringMesh = new THREE.Mesh(ringGeo, ringMat);
-    ringMesh.rotation.set(
-      finalVisualProps.ringTiltRad || 0,
-      finalVisualProps.ringYawRad || 0,
-      0
-    );
-    group.add(ringMesh);
-  }
-
-  // 5. Crisp LOD Label Sprite
-  const labelMat = trackMaterial(
-    new THREE.SpriteMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.92,
-    })
+  // 3. Readable Graphify Label Sprite
+  const labelSprite = createNodeLabelSprite(
+    node,
+    { ...finalVisualProps, radius },
+    resourceRegistry
   );
-
-  if (typeof document !== "undefined") {
-    const labelCanvas = createProceduralLabelCanvas(safeName, nodeColor);
-    if (labelCanvas) {
-      const labelTex = trackTexture(new THREE.CanvasTexture(labelCanvas));
-      labelMat.map = labelTex;
-    }
-  }
-
-  const labelSprite = trackSprite(new THREE.Sprite(labelMat));
-  const labelY = (haloRadius || (finalVisualProps.radius || 4.5) * 1.3) + 3.5;
-  labelSprite.position.set(0, labelY, 0);
-  labelSprite.scale.set(16, 4, 1);
-
   group.userData.labelSprite = labelSprite;
   group.add(labelSprite);
 
   return group;
 }
 
+export const createPlanetObject = createPlanetObject3D;
+
 /**
- * Creates a deterministic cosmic starfield background using spherical Fibonacci / sinusoidal distribution.
+ * Returns a clean empty THREE.Group without decorative star particles
+ * (retained for import/test compatibility).
  *
- * @param {number} starCount Number of background stars (default: 1200)
- * @param {number} radius Spherical radius envelope (default: 1400)
- * @param {Object|null} resourceRegistry Optional resource tracker
- * @returns {THREE.Points}
+ * @param {number} starCount
+ * @param {number} radius
+ * @param {Object|null} resourceRegistry
+ * @returns {THREE.Group}
  */
 export function createCosmicStarfield(
-  starCount = 1200,
+  starCount = 0,
   radius = 1400,
   resourceRegistry = null
 ) {
-  const count =
-    Number.isFinite(starCount) && starCount > 0 ? Math.round(starCount) : 1200;
-  const maxRadius =
-    Number.isFinite(radius) && radius > 0 ? radius : 1400;
-
-  const positions = new Float32Array(count * 3);
-  const colors = new Float32Array(count * 3);
-
-  // Deterministic golden spiral / Halton distribution on sphere with radial depth
-  const goldenRatio = (1 + Math.sqrt(5)) / 2;
-  for (let i = 0; i < count; i++) {
-    const phi = Math.acos(1 - (2 * (i + 0.5)) / count);
-    const theta = 2 * Math.PI * i * goldenRatio;
-
-    // Sinusoidal deterministic radial dispersion (no Math.random)
-    const sinFactor = Math.abs(Math.sin((i + 1) * 12.9898));
-    const r = maxRadius * (0.65 + 0.35 * sinFactor);
-
-    positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-    positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
-    positions[i * 3 + 2] = r * Math.cos(phi);
-
-    // Subtle star colors (white-blue to warm stellar white)
-    const colorMix = 0.8 + 0.2 * Math.cos(i * 3.1415);
-    colors[i * 3] = colorMix;
-    colors[i * 3 + 1] = colorMix;
-    colors[i * 3 + 2] = 1.0;
-  }
-
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-
-  const material = new THREE.PointsMaterial({
-    size: 2.5,
-    vertexColors: true,
-    transparent: true,
-    opacity: 0.85,
-    sizeAttenuation: false,
-  });
-
-  if (resourceRegistry) {
-    if (resourceRegistry.geometries) resourceRegistry.geometries.add(geometry);
-    if (resourceRegistry.materials) resourceRegistry.materials.add(material);
-  }
-
-  const points = new THREE.Points(geometry, material);
-  points.userData = { starCount: count, radius: maxRadius };
-  return points;
+  void starCount;
+  void resourceRegistry;
+  const cleanGroup = new THREE.Group();
+  cleanGroup.userData = {
+    starCount: 0,
+    radius: Number.isFinite(radius) && radius > 0 ? radius : 1400,
+    isCleanGraphifyStage: true,
+  };
+  return cleanGroup;
 }
+
+export const createStarfield = createCosmicStarfield;
 
 /**
  * Safely configures 3D physics forces on ForceGraph3D instance, adding cluster gravity.
@@ -462,7 +476,7 @@ export function configureSpaceForces3D(
   // 1. Configure charge force
   const charge = fgInstance.d3Force("charge");
   if (charge && typeof charge.strength === "function") {
-    const chargeStrength = graphMode === "bipartite" ? -120 : -90;
+    const chargeStrength = graphMode === "bipartite" ? -120 : -95;
     charge.strength(chargeStrength);
     if (typeof charge.distanceMax === "function") {
       charge.distanceMax(600);
@@ -474,7 +488,7 @@ export function configureSpaceForces3D(
   if (link && typeof link.distance === "function") {
     link.distance((l) => {
       const weight = Number.isFinite(l?.weight) ? l.weight : 0.2;
-      return Math.max(30, 160 * (1 - Math.min(1, weight * 0.8)));
+      return Math.max(32, 160 * (1 - Math.min(1, weight * 0.8)));
     });
   }
 
@@ -612,7 +626,7 @@ export function attachWebGLContextListeners(
 }
 
 /**
- * Deterministically traverses and disposes Three.js universe resources (geometries, materials, textures, sprites).
+ * Deterministically traverses and disposes Three.js resources (geometries, materials, textures, sprites).
  *
  * @param {THREE.Object3D|THREE.Scene|THREE.Group|null} sceneOrRoot
  * @param {Object|null} resourceRegistry
@@ -668,7 +682,6 @@ export function disposeThreeUniverse(
     });
   }
 
-  // Also collect textures from materials in registry
   materialsToDispose.forEach((mat) => {
     if (mat && typeof mat === "object") {
       if (mat.map) texturesToDispose.add(mat.map);
@@ -677,7 +690,6 @@ export function disposeThreeUniverse(
     }
   });
 
-  // 1. Dispose Textures
   texturesToDispose.forEach((tex) => {
     if (tex && typeof tex.dispose === "function") {
       try {
@@ -689,7 +701,6 @@ export function disposeThreeUniverse(
     }
   });
 
-  // 2. Dispose Materials
   materialsToDispose.forEach((mat) => {
     if (mat && typeof mat.dispose === "function") {
       try {
@@ -701,7 +712,6 @@ export function disposeThreeUniverse(
     }
   });
 
-  // 3. Dispose Geometries
   geometriesToDispose.forEach((geo) => {
     if (geo && typeof geo.dispose === "function") {
       try {
@@ -713,7 +723,6 @@ export function disposeThreeUniverse(
     }
   });
 
-  // 4. Detach and record Sprites
   spritesToDispose.forEach((spr) => {
     if (spr && typeof spr.dispose === "function") {
       try {
@@ -732,7 +741,6 @@ export function disposeThreeUniverse(
     disposedSprites++;
   });
 
-  // 5. Clear registry sets
   if (resourceRegistry) {
     if (resourceRegistry.geometries instanceof Set) {
       resourceRegistry.geometries.clear();
@@ -748,7 +756,6 @@ export function disposeThreeUniverse(
     }
   }
 
-  // 6. Clean children from scene or root container
   if (sceneOrRoot && typeof sceneOrRoot.remove === "function") {
     while (sceneOrRoot.children && sceneOrRoot.children.length > 0) {
       sceneOrRoot.remove(sceneOrRoot.children[0]);
