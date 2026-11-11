@@ -245,6 +245,9 @@ components:
           type: string
         image_url:
           type: [string, "null"]
+        spotify_url:
+          type: [string, "null"]
+          description: URL pública do perfil do artista no Spotify (null para nós de gênero)
         genres:
           type: array
           items:
@@ -260,6 +263,9 @@ components:
                 type: string
               album_image:
                 type: [string, "null"]
+        connected_artists_count:
+          type: [integer, "null"]
+          description: Total de artistas conectados ao hub de gênero no modo bipartite (null para nós de artista)
         metrics:
           type: object
           properties:

@@ -613,6 +613,7 @@ def compute_unipartite_artist_graph(
 
         images = artist.get("images", [])
         image_url = images[1]["url"] if len(images) > 1 else (images[0]["url"] if images else None)
+        spotify_url = artist.get("external_urls", {}).get("spotify") or f"https://open.spotify.com/artist/{a_id}"
 
         nodes_payload.append({
             "id": a_id,
@@ -625,8 +626,10 @@ def compute_unipartite_artist_graph(
             "cluster_id": c_id,
             "color": color,
             "image_url": image_url,
+            "spotify_url": spotify_url,
             "genres": get_artist_genres(artist),
             "top_tracks": artist_top_tracks.get(a_id, []),
+            "connected_artists_count": None,
             "metrics": {
                 "degree_centrality": round(degree_cent.get(a_id, 0.0), 3),
                 "betweenness_centrality": round(betweenness_cent.get(a_id, 0.0), 3),
@@ -762,6 +765,7 @@ def compute_bipartite_artist_genre_graph(
 
         images = artist.get("images", [])
         image_url = images[1]["url"] if len(images) > 1 else (images[0]["url"] if images else None)
+        spotify_url = artist.get("external_urls", {}).get("spotify") or f"https://open.spotify.com/artist/{a_id}"
 
         nodes_payload.append({
             "id": a_id,
@@ -774,8 +778,10 @@ def compute_bipartite_artist_genre_graph(
             "cluster_id": c_id,
             "color": color,
             "image_url": image_url,
+            "spotify_url": spotify_url,
             "genres": get_artist_genres(artist),
             "top_tracks": artist_top_tracks.get(a_id, []),
+            "connected_artists_count": None,
             "metrics": {
                 "degree_centrality": round(degree_cent.get(a_id, 0.0), 3),
                 "betweenness_centrality": round(betweenness_cent.get(a_id, 0.0), 3),
@@ -801,6 +807,7 @@ def compute_bipartite_artist_genre_graph(
             "cluster_id": c_id,
             "color": color,
             "image_url": None,
+            "spotify_url": None,
             "genres": [g],
             "top_tracks": [],
             "connected_artists_count": connected_count,

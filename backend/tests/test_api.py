@@ -15,6 +15,12 @@ def session_cookie():
     main.SESSIONS.clear()
 
 
+@pytest.fixture
+def client():
+    with TestClient(main.app) as c:
+        yield c
+
+
 def client_with_session(session_id):
     client = TestClient(main.app, raise_server_exceptions=False)
     client.cookies.set(main.SESSION_COOKIE_NAME, session_id)
@@ -177,3 +183,77 @@ def test_incomplete_spotify_artist_item_returns_bad_gateway(monkeypatch, session
     with client_with_session(session_cookie) as client:
         response = client.get("/api/graph")
     assert response.status_code == 502
+
+
+def test_graph_endpoint_delivers_connected_artists_count_and_provenance_contract(client):
+    res_bipartite = client.get("/api/graph?graph_mode=bipartite&demo=true")
+    assert res_bipartite.status_code == 200
+    bipartite_payload = res_bipartite.json()
+
+    res_artists = client.get("/api/graph?graph_mode=artists&demo=true")
+    assert res_artists.status_code == 200
+    artists_payload = res_artists.json()
+
+    # a) Todos os nós genre no modo bipartite possuem connected_artists_count inteiro >= 1 consistente com as arestas artist-genre
+    genre_edge_counts = {}
+    for link in bipartite_payload["links"]:
+        assert link["link_type"] == "artist-genre"
+        genre_edge_counts[link["target"]] = genre_edge_counts.get(link["target"], 0) + 1
+
+    genre_nodes = [n for n in bipartite_payload["nodes"] if n["node_type"] == "genre"]
+    assert len(genre_nodes) > 0
+    for g_node in genre_nodes:
+        assert isinstance(g_node["connected_artists_count"], int)
+        assert g_node["connected_artists_count"] >= 1
+        assert g_node["connected_artists_count"] == genre_edge_counts.get(g_node["id"], 0)
+
+    # b) Todos os nós artist em ambos os modos possuem a chave "connected_artists_count" com valor None
+    bipartite_artists = [n for n in bipartite_payload["nodes"] if n["node_type"] == "artist"]
+    assert len(bipartite_artists) > 0
+    for node in bipartite_artists:
+        assert "connected_artists_count" in node
+        assert node["connected_artists_count"] is None
+
+    unipartite_artists = [n for n in artists_payload["nodes"] if n["node_type"] == "artist"]
+    assert len(unipartite_artists) > 0
+    for node in unipartite_artists:
+        assert "connected_artists_count" in node
+        assert node["connected_artists_count"] is None
+
+    # c) Presença dos campos de origem Spotify e inferidos pelo BeatCode
+    spotify_artist_fields = [
+        "name",
+        "affinity_rank",
+        "global_popularity",
+        "genres",
+        "top_tracks",
+        "spotify_url",
+        "image_url",
+    ]
+    beatcode_node_inferences = [
+        "affinity_score",
+        "metrics",
+        "cluster_id",
+        "connected_artists_count",
+    ]
+
+    for payload in (bipartite_payload, artists_payload):
+        for node in [n for n in payload["nodes"] if n["node_type"] == "artist"]:
+            for field in spotify_artist_fields:
+                assert field in node, f"Missing Spotify field: {field}"
+            for field in beatcode_node_inferences:
+                assert field in node, f"Missing BeatCode inference field: {field}"
+            assert "degree_centrality" in node["metrics"]
+            assert "betweenness_centrality" in node["metrics"]
+
+    # Arestas unipartidas
+    assert len(artists_payload["links"]) > 0
+    for link in artists_payload["links"]:
+        assert link["link_type"] == "artist-artist"
+        assert "weight" in link
+        assert "shared_genres" in link
+        assert "components" in link
+        assert "genre_similarity" in link["components"]
+        assert "direct_collaboration" in link["components"]
+        assert "co_listening" in link["components"]
+
