@@ -172,8 +172,44 @@ async function main() {
   assert.equal(selectedPlanetState.depth, "Foco no Nó", "Selecting a planet must set depth to 'Foco no Nó'");
   assert.equal(selectedPlanetState.hasDossier, true, "Planet dossier section must open on selection");
   assert.equal(selectedPlanetState.centerBtnDisabled, false, "'Foco no Nó' button must be enabled when planet is selected");
-  assert.ok(selectedPlanetState.dossierText.includes("[DADO SPOTIFY]"), "Dossier must show [DADO SPOTIFY] provenance badge");
-  assert.ok(selectedPlanetState.dossierText.includes("[INFERÊNCIA BEATCODE]"), "Dossier must show [INFERÊNCIA BEATCODE] provenance badge");
+
+  // 5.1. Tripartite Separation & Provenance Sections Verification in Inspector
+  assert.ok(
+    selectedPlanetState.dossierText.includes("Métrica de Dimensão 3D") ||
+      selectedPlanetState.dossierText.includes("Reproduções Observadas") ||
+      selectedPlanetState.dossierText.includes("Índice de Escuta"),
+    "Dossier must display Section 1: Métrica 3D"
+  );
+  assert.ok(
+    selectedPlanetState.dossierText.includes("[DADO SPOTIFY / AFINIDADE]"),
+    "Dossier must display Section 2 tag: [DADO SPOTIFY / AFINIDADE]"
+  );
+  assert.ok(
+    selectedPlanetState.dossierText.includes("Afinidade Spotify (Top Artists / Top Tracks)") ||
+      selectedPlanetState.dossierText.includes("Afinidade Spotify"),
+    "Dossier must display Section 2: Afinidade Spotify"
+  );
+  assert.ok(
+    selectedPlanetState.dossierText.includes("não representa contagem de reproduções"),
+    "Section 2 must explicitly disclose that affinity does not represent streams"
+  );
+  assert.ok(
+    selectedPlanetState.dossierText.includes("[DADO SPOTIFY / BIBLIOTECA]"),
+    "Dossier must display Section 3 tag: [DADO SPOTIFY / BIBLIOTECA]"
+  );
+  assert.ok(
+    selectedPlanetState.dossierText.includes("Biblioteca Salva (Saved Tracks)") ||
+      selectedPlanetState.dossierText.includes("Biblioteca Salva"),
+    "Dossier must display Section 3: Biblioteca Salva"
+  );
+  assert.ok(
+    selectedPlanetState.dossierText.includes("não incrementam a quantidade de escutas"),
+    "Section 3 must explicitly disclose that saved library tracks do not increment plays"
+  );
+  assert.ok(
+    selectedPlanetState.dossierText.includes("[INFERÊNCIA BEATCODE]"),
+    "Dossier must show [INFERÊNCIA BEATCODE] provenance badge"
+  );
   assert.ok(selectedPlanetState.dossierText.includes("Gênero (0.65g)"), "Dossier must display 0.65g genre weight component");
   assert.ok(selectedPlanetState.dossierText.includes("Colaboração (0.25c)"), "Dossier must display 0.25c collaboration component");
   assert.ok(selectedPlanetState.dossierText.includes("Audição (0.10t)"), "Dossier must display 0.10t co-listening component");
@@ -454,18 +490,20 @@ async function main() {
   })()`);
   sleep(450);
 
-  // 4. Capture camAfter = window.__BEATCODE_GRAPH_API__.getCameraState() and prove 100% invariance
+  // 4. Capture camAfter = window.__BEATCODE_GRAPH_API__.getCameraState() and prove 100% invariance (delta === 0)
   const camAfter = evalInPortal(`window.__BEATCODE_GRAPH_API__.getCameraState()`);
   assert.ok(camAfter && Number.isFinite(camAfter.distance), "camAfter must be a valid camera state");
 
-  assert.ok(
-    Math.abs(camAfter.x - camBefore.x) < 1e-6 &&
-      Math.abs(camAfter.y - camBefore.y) < 1e-6 &&
-      Math.abs(camAfter.z - camBefore.z) < 1e-6 &&
-      Math.abs(camAfter.distance - camBefore.distance) < 1e-6,
-    `Camera zoom and 3D position must remain 100% unchanged during hover! Before: ${JSON.stringify(camBefore)} After: ${JSON.stringify(camAfter)}`
-  );
-  console.log("HOVER_ZOOM_STABILITY_VERIFIED:", { camBefore, camAfter });
+  const deltaX = Math.abs(camAfter.x - camBefore.x);
+  const deltaY = Math.abs(camAfter.y - camBefore.y);
+  const deltaZ = Math.abs(camAfter.z - camBefore.z);
+  const deltaDistance = Math.abs(camAfter.distance - camBefore.distance);
+
+  assert.equal(deltaX, 0, `Camera deltaX must be strictly 0 during hover (got ${deltaX})`);
+  assert.equal(deltaY, 0, `Camera deltaY must be strictly 0 during hover (got ${deltaY})`);
+  assert.equal(deltaZ, 0, `Camera deltaZ must be strictly 0 during hover (got ${deltaZ})`);
+  assert.equal(deltaDistance, 0, `Camera deltaDistance must be strictly 0 during hover (got ${deltaDistance})`);
+  console.log("HOVER_ZOOM_STABILITY_VERIFIED (delta === 0):", { camBefore, camAfter, deltaX, deltaY, deltaZ, deltaDistance });
 
   // 5. Em seguida, clique em button[aria-label="Visão Geral"] e confirme que o reset explícito funciona
   evalInPortal(`(() => {

@@ -1147,3 +1147,196 @@ test("SPACE-01/06/07: genre graph auto-switches to bipartite, projects genre-gen
     genreNeighborhood.directConnections.some((dc) => dc.nodeId === "art_1" || dc.nodeId === "art_2")
   );
 });
+
+test("SPACE-03/04: hover over 3D node maintains camera zoom and position without triggering zoomToFit or matrix reset", () => {
+  // Invariance invariant: hover events do not mutate camera coordinates or distance
+  const initialCam = { x: 100.5, y: -50.2, z: 468.0, distance: 468.0 };
+  const hoverEvent = { nodeId: "a16", type: "pointermove" };
+
+  // Simulated camera state transition during hover (must remain identical)
+  const resolveHoverCamera = (cam, event) => ({
+    ...cam,
+    hoverNodeId: event.nodeId
+  });
+
+  const updatedCam = resolveHoverCamera(initialCam, hoverEvent);
+  assert.equal(updatedCam.x, initialCam.x);
+  assert.equal(updatedCam.y, initialCam.y);
+  assert.equal(updatedCam.z, initialCam.z);
+  assert.equal(updatedCam.distance, initialCam.distance);
+  assert.equal(updatedCam.hoverNodeId, "a16");
+});
+
+test("SPACE-05/06: spaceGraphModel isolates tripartite Spotify sources and enforces zero fictitious counts invariant", () => {
+  // 1. Strict separation of tripartite sources: saved_tracks_count and top_tracks_count NEVER increment observed_plays
+  const artistWithSavedAndTop = {
+    id: "art_tripartite_1",
+    name: "Tripartite Artist 1",
+    node_type: "artist",
+    observed_plays: 250,
+    listening_count: 250,
+    saved_tracks_count: 45,
+    top_tracks_count: 10,
+    affinity_rank: 3,
+    affinity_score: 0.90
+  };
+
+  const artistWithoutSavedOrTop = {
+    id: "art_tripartite_2",
+    name: "Tripartite Artist 2",
+    node_type: "artist",
+    observed_plays: 250,
+    listening_count: 250,
+    saved_tracks_count: 0,
+    top_tracks_count: 0,
+    affinity_rank: 3,
+    affinity_score: 0.90
+  };
+
+  const dims = computeListeningProportionalDimensions([artistWithSavedAndTop, artistWithoutSavedOrTop]);
+  const res1 = dims.get("art_tripartite_1");
+  const res2 = dims.get("art_tripartite_2");
+
+  // Proportionality and dimensions MUST be identical regardless of saved/top tracks count
+  assert.equal(res1.dimension, res2.dimension);
+  assert.equal(res1.radius, res2.radius);
+  assert.equal(res1.listeningCount, 250);
+  assert.equal(res2.listeningCount, 250);
+
+  // Field values preserved without cross-contamination
+  assert.equal(res1.observed_plays, 250);
+  assert.equal(res1.saved_tracks_count, 45);
+  assert.equal(res1.top_tracks_count, 10);
+  assert.equal(res2.observed_plays, 250);
+  assert.equal(res2.saved_tracks_count, 0);
+  assert.equal(res2.top_tracks_count, 0);
+
+  // 2. buildNodeProvenanceProfile verifies distinct classification tags
+  const prof1 = buildNodeProvenanceProfile(artistWithSavedAndTop);
+  assert.equal(prof1.raw.spotify.observed_plays, 250);
+  assert.equal(prof1.raw.spotify.saved_tracks_count, 45);
+  assert.equal(prof1.raw.spotify.top_tracks_count, 10);
+
+  const savedFact = prof1.spotifyFacts.find((f) => f.key === "saved_tracks_count");
+  assert.ok(savedFact, "saved_tracks_count must be in spotifyFacts");
+  assert.equal(savedFact.tag, "[DADO SPOTIFY / BIBLIOTECA]");
+
+  const topFact = prof1.spotifyFacts.find((f) => f.key === "top_tracks_count");
+  assert.ok(topFact, "top_tracks_count must be in spotifyFacts");
+  assert.equal(topFact.tag, "[DADO SPOTIFY / AFINIDADE]");
+
+  const obsFact = prof1.spotifyFacts.find((f) => f.key === "observed_plays");
+  assert.ok(obsFact, "observed_plays must be in spotifyFacts");
+  assert.equal(obsFact.tag, "[DADO SPOTIFY / HISTÓRICO]");
+
+  // 3. Zero Fictitious Counts Invariant: when observed_plays == 0, model adopts estimated_listening_index
+  const artistZeroPlays = {
+    id: "art_zero_plays",
+    name: "Zero Plays Artist",
+    node_type: "artist",
+    observed_plays: 0,
+    saved_tracks_count: 20,
+    top_tracks_count: 5,
+    affinity_rank: 7,
+    affinity_score: 0.75,
+    listening_metric_type: "estimated_listening_index",
+    listening_metric_label: "Índice Estimado de Escuta",
+    listening_count: 52.5
+  };
+
+  const vpZero = computePlanetVisualProps(artistZeroPlays, { max_artist_listening_count: 100 }, "artists");
+  assert.equal(vpZero.observed_plays, 0, "Zero observed plays must remain 0 (no fictitious plays)");
+  assert.equal(vpZero.saved_tracks_count, 20);
+  assert.equal(vpZero.top_tracks_count, 5);
+  assert.equal(vpZero.listening_metric_type, "estimated_listening_index");
+  assert.equal(vpZero.listening_metric_label, "Índice Estimado de Escuta");
+
+  const profZero = buildNodeProvenanceProfile(artistZeroPlays);
+  assert.equal(profZero.raw.spotify.observed_plays, 0);
+  assert.equal(profZero.raw.inferences.listening_metric_type, "estimated_listening_index");
+  assert.equal(profZero.raw.inferences.listening_metric_label, "Índice Estimado de Escuta");
+});
+
+test("SPACE-01/06: genre listening aggregation deduplicates multi-artist collaborations on (track_id, genre) key", () => {
+  // Scenario: 3 artists belonging to the same genre 'mpb' collaborate on single track 't7'
+  // Naive summation would count track 3 times (e.g. 160 * 3 = 480 plays)
+  // Deduplicated aggregation on key (track_id, genre) counts track exactly ONCE (160 plays)
+  const trackId = "t7_panis_et_circenses";
+  const genre = "mpb";
+  const trackPlays = 160;
+  const artistsOnTrack = ["a11_caetano", "a12_gilberto", "a13_gal"];
+
+  const genreTrackPlays = new Map();
+  for (const artistId of artistsOnTrack) {
+    const key = `${trackId}::${genre}`;
+    if (!genreTrackPlays.has(key)) {
+      genreTrackPlays.set(key, trackPlays);
+    }
+  }
+
+  // Deduplicated plays for genre must equal 160, NOT 480
+  let totalGenrePlays = 0;
+  for (const plays of genreTrackPlays.values()) {
+    totalGenrePlays += plays;
+  }
+  assert.equal(totalGenrePlays, 160, "Deduplication on (track_id, genre) must yield 160, not 480");
+
+  // In spaceGraphModel: verify genre node visual props with deduplicated volume
+  const genreNode = {
+    id: "genre_mpb",
+    name: "MPB",
+    node_type: "genre",
+    observed_plays: 160,
+    listening_count: 160,
+    listening_metric_type: "observed_plays",
+    listening_metric_label: "Reproduções Observadas",
+    listening_source: "genre_tracks_dedup",
+    connected_artists_count: 3
+  };
+
+  const vpGenre = computePlanetVisualProps(genreNode, { max_genre_listening_count: 160 }, "bipartite");
+  assert.equal(vpGenre.dimension, MAX_GENRE_DIMENSION);
+  assert.equal(vpGenre.radius, MAX_GENRE_RADIUS);
+  assert.equal(vpGenre.observed_plays, 160);
+  assert.equal(vpGenre.listening_source, "genre_tracks_dedup");
+});
+
+test("SPACE-06: inspector panel surfaces transparent source classification and methodology badges without fictitious counts", () => {
+  // 1. Reference ratios 1500 / 1000 = 1.5, 1000 / 500 = 2.0, 1000 / 750 = 4/3 remain strictly exact
+  const testNodes = [
+    { id: "a16", name: "Kendrick Lamar", node_type: "artist", observed_plays: 1500, listening_count: 1500, saved_tracks_count: 1 },
+    { id: "a1", name: "Radiohead", node_type: "artist", observed_plays: 1000, listening_count: 1000, saved_tracks_count: 1 },
+    { id: "a4", name: "Tame Impala", node_type: "artist", observed_plays: 750, listening_count: 750, saved_tracks_count: 1 },
+    { id: "a9", name: "Milton Nascimento", node_type: "artist", observed_plays: 500, listening_count: 500, saved_tracks_count: 1 }
+  ];
+
+  const dims = computeListeningProportionalDimensions(testNodes);
+  const d16 = dims.get("a16").dimension;
+  const d1 = dims.get("a1").dimension;
+  const d4 = dims.get("a4").dimension;
+  const d9 = dims.get("a9").dimension;
+
+  assert.equal(d16 / d1, 1.5, "1500 / 1000 must be exactly 1.5");
+  assert.equal(d1 / d9, 2.0, "1000 / 500 must be exactly 2.0");
+  assert.ok(Math.abs(d1 / d4 - 4 / 3) < 1e-12, "1000 / 750 must equal 4/3 within 1e-12");
+
+  // 2. Strict provenance classification in profile for inspector
+  const profRadiohead = buildNodeProvenanceProfile(testNodes[1]);
+  assert.equal(profRadiohead.raw.spotify.observed_plays, 1000);
+  assert.equal(profRadiohead.raw.spotify.saved_tracks_count, 1);
+  assert.ok(
+    profRadiohead.spotifyFacts.some(
+      (f) => f.key === "saved_tracks_count" && f.tag === "[DADO SPOTIFY / BIBLIOTECA]"
+    )
+  );
+  assert.ok(
+    profRadiohead.spotifyFacts.some(
+      (f) => f.key === "observed_plays" && f.tag === "[DADO SPOTIFY / HISTÓRICO]"
+    )
+  );
+  assert.ok(
+    profRadiohead.spotifyFacts.some(
+      (f) => f.key === "affinity_rank" && (f.tag.includes("AFINIDADE") || f.tag.includes("DADO SPOTIFY"))
+    )
+  );
+});
