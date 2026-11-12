@@ -122,6 +122,31 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
   cursor: not-allowed;
 }
 
+/* Custom Dark Cosmic Scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(63, 63, 70, 0.65) rgba(7, 11, 20, 0.4);
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: rgba(7, 11, 20, 0.4);
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(82, 82, 91, 0.7);
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(29, 185, 84, 0.7);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     scroll-behavior: auto !important;

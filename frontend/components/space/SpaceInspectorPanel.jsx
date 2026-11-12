@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useCallback, useState } from "react";
+import React, { useMemo, useCallback, useState, useRef, useEffect } from "react";
 import {
   Globe,
   Compass,
@@ -52,6 +52,7 @@ export function SpaceInspectorPanel({
   showLegend = true,
   onToggleLegend,
 }) {
+  const scrollBodyRef = useRef(null);
   const [collapsedSections, setCollapsedSections] = useState({
     telemetry: false,
     constellations: false,
@@ -60,6 +61,12 @@ export function SpaceInspectorPanel({
     directConnections: false,
     indirectConnections: false
   });
+
+  useEffect(() => {
+    if (selectedNode?.id && scrollBodyRef.current) {
+      scrollBodyRef.current.scrollTop = 0;
+    }
+  }, [selectedNode?.id]);
 
   const toggleSection = useCallback((sectionKey) => {
     setCollapsedSections((prev) => ({
@@ -153,7 +160,10 @@ export function SpaceInspectorPanel({
       </div>
 
       {/* Scrollable Content Body */}
-      <div className="flex-1 overflow-y-auto divide-y divide-zinc-800/60 scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent">
+      <div
+        ref={scrollBodyRef}
+        className="flex-1 overflow-y-auto divide-y divide-zinc-800/60"
+      >
 
         {/* 1. Selected Planet/Core Details (When active) */}
         {selectedNode && provenanceProfile ? (

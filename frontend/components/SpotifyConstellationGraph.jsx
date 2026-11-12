@@ -1113,9 +1113,15 @@ export default function SpotifyConstellationGraph() {
               }}
               linkWidth={getLinkWidth}
               linkColor={getLinkColor}
+              linkOpacity={0.55}
               linkDirectionalParticles={getLinkParticles}
               linkDirectionalParticleWidth={2.4}
               cooldownTicks={120}
+              onEngineStop={() => {
+                if (!selectedNode && focusedClusterId === null) {
+                  fg3dRef.current?.zoomToFit(motionConfig.reducedMotion ? 0 : 400, 48);
+                }
+              }}
             />
           ) : (
             <ForceGraph2D
