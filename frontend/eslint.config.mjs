@@ -6,7 +6,7 @@ export default [
   { ignores: [".next/**", "node_modules/**"] },
   js.configs.recommended,
   {
-    files: ["app/**/*.{js,jsx}", "components/**/*.{js,jsx}"],
+    files: ["app/**/*.{js,jsx}", "components/**/*.{js,jsx}", "lib/**/*.{js,mjs}"],
     languageOptions: {
       parserOptions: { ecmaFeatures: { jsx: true } },
       globals: {
@@ -16,6 +16,7 @@ export default [
         requestAnimationFrame: "readonly",
         cancelAnimationFrame: "readonly",
         window: "readonly",
+        document: "readonly",
         process: "readonly",
       },
     },
@@ -35,6 +36,17 @@ export default [
   {
     files: ["e2e/**/*.{js,mjs}"],
     languageOptions: { globals: { document: "readonly", innerWidth: "readonly" } },
+  },
+  {
+    files: ["tests/**/*.{js,mjs}"],
+    languageOptions: {
+      globals: {
+        process: "readonly",
+        console: "readonly",
+        fetch: "readonly",
+        performance: "readonly",
+      },
+    },
   },
   {
     files: ["playwright.config.mjs"],

@@ -13,16 +13,10 @@ import * as THREE from "three";
 
 import {
   DEFAULT_COLOR,
-  DEFAULT_MIN_EDGE_WEIGHT,
-  CLUSTER_PALETTE,
   MAX_ARTIST_DIMENSION,
-  MAX_ARTIST_RADIUS,
   MAX_GENRE_DIMENSION,
   MAX_GENRE_RADIUS,
-  hashString,
   escapeHtml,
-  sanitizeNodeColor,
-  sanitizeNodeName,
   computeListeningProportionalDimensions,
   computePlanetVisualProps,
   computeClusterCentroids,
@@ -42,8 +36,6 @@ import {
 } from "../components/space/PlanetaryRenderer.js";
 
 import {
-  SPACE_PREFS_STORAGE_KEY,
-  DEFAULT_SPACE_PREFERENCES,
   sanitizeSpacePreferences,
   loadSpacePreferences,
   saveSpacePreferences,
@@ -1267,12 +1259,12 @@ test("SPACE-01/06: genre listening aggregation deduplicates multi-artist collabo
   const artistsOnTrack = ["a11_caetano", "a12_gilberto", "a13_gal"];
 
   const genreTrackPlays = new Map();
-  for (const artistId of artistsOnTrack) {
+  artistsOnTrack.forEach(() => {
     const key = `${trackId}::${genre}`;
     if (!genreTrackPlays.has(key)) {
       genreTrackPlays.set(key, trackPlays);
     }
-  }
+  });
 
   // Deduplicated plays for genre must equal 160, NOT 480
   let totalGenrePlays = 0;

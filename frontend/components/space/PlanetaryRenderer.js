@@ -12,8 +12,6 @@
  * - Deterministic GPU resource registry and disposal (disposeThreeUniverse).
  */
 
-/* global document */
-
 import * as THREE from "three";
 import {
   computePlanetVisualProps,

@@ -19,7 +19,9 @@ function resolvePortalName() {
     const listOut = execFileSync("maestri", ["list"], { encoding: "utf-8" });
     const match = listOut.match(/name:\s*"([^"]*BeatCode Space[^"]*)"/i);
     if (match) return match[1];
-  } catch {}
+  } catch (err) {
+    void err;
+  }
   return "BeatCode Space";
 }
 

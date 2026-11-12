@@ -18,8 +18,8 @@ import {
 import { deriveExplorationDepth } from "../../lib/spaceGraphModel";
 
 const GRAPH_MODE_OPTIONS = [
-  { key: "artists", label: "Artistas" },
-  { key: "bipartite", label: "Artistas + Gêneros" },
+  { key: "artists", label: "Artistas ↔ Artistas" },
+  { key: "bipartite", label: "Artistas ↔ Gêneros (Bipartido)" },
 ];
 
 const TIME_RANGE_OPTIONS = [

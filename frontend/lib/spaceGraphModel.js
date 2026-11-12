@@ -109,7 +109,6 @@ export function computeListeningProportionalDimensions(nodes = [], options = {})
 
   function processGroup(group, defaultDMax, explicitMax) {
     const D_max = defaultDMax;
-    const R_max = D_max / 2.0;
 
     const items = group.map((node) => {
       const rawL = node.listening_count ?? node.observed_plays ?? node.play_count;
@@ -1129,6 +1128,7 @@ export function buildNodeProvenanceProfile(node = {}, graphMode = "artists") {
     return {
       nodeId: "",
       nodeType: "artist",
+      graphMode,
       spotifyFacts: [],
       beatcodeInferences: [],
       raw: { spotify: {}, inferences: {} }
@@ -1299,6 +1299,7 @@ export function buildNodeProvenanceProfile(node = {}, graphMode = "artists") {
   return {
     nodeId,
     nodeType,
+    graphMode,
     spotifyFacts,
     beatcodeInferences,
     raw: {
@@ -1449,7 +1450,8 @@ export function resolveWebGLFallbackState(currentState = {}, eventType = "", pay
     selectedNodeId: currentState?.selectedNodeId ?? null,
     minEdgeWeight: currentState?.minEdgeWeight ?? DEFAULT_MIN_EDGE_WEIGHT,
     searchQuery: currentState?.searchQuery ?? "",
-    hiddenClusters: currentState?.hiddenClusters || new Set()
+    hiddenClusters: currentState?.hiddenClusters || new Set(),
+    payload,
   };
 
   switch (eventType) {

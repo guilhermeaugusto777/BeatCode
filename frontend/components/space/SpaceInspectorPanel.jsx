@@ -26,6 +26,7 @@ import {
   decomposeEdgeWeight,
   computePlanetVisualProps,
 } from "../../lib/spaceGraphModel.js";
+import ConnectionExplorer from "../ConnectionExplorer";
 
 /**
  * Helper to display human-friendly data source labels.
@@ -238,6 +239,12 @@ export function SpaceInspectorPanel({
   visibleNodes = [],
   showLegend = true,
   onToggleLegend,
+  connectionsRef = null,
+  selectedLinkKey = null,
+  selectedExplanation = null,
+  nodeConnections = [],
+  nodesById = new Map(),
+  onSelectLink = null,
 }) {
   const scrollBodyRef = useRef(null);
   const [collapsedSections, setCollapsedSections] = useState({
@@ -1294,9 +1301,12 @@ export function SpaceInspectorPanel({
               <div
                 role="list"
                 aria-label="Lista de nós de artistas e gêneros visíveis"
-                className="max-h-48 overflow-y-auto space-y-1.5 pr-1 pt-1"
+                className="max-h-56 overflow-y-auto space-y-1.5 pr-1 pt-1"
               >
-                {visibleNodes.slice(0, 30).map((nodeItem) => {
+                <p className="my-2 text-xs text-zinc-400" role="status" aria-live="polite">
+                  {visibleNodes.length} {visibleNodes.length === 1 ? "resultado" : "resultados"} de {visibleNodes.length} nós
+                </p>
+                {visibleNodes.map((nodeItem) => {
                   const isCurrent = selectedNode?.id === nodeItem.id;
                   const isGenre = nodeItem.node_type === "genre";
                   const rank = nodeItem.listening_rank ?? nodeItem.affinity_rank;
@@ -1312,6 +1322,7 @@ export function SpaceInspectorPanel({
                             ? "bg-emerald-500/20 text-emerald-200 border-emerald-500/60"
                             : "bg-zinc-900/70 text-zinc-200 border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-800/80"
                         }`}
+                        title={nodeItem.name}
                       >
                         <span className="flex items-center gap-2 min-w-0 truncate">
                           <span
@@ -1319,6 +1330,7 @@ export function SpaceInspectorPanel({
                             style={{ backgroundColor: nodeItem.color || "#1DB954" }}
                             aria-hidden="true"
                           />
+                          <span className="sr-only">{isGenre ? "Gênero: " : "Artista: "}</span>
                           <span className="font-semibold truncate">{nodeItem.name}</span>
                         </span>
                         <span className="shrink-0 text-[10px] font-mono text-zinc-400">
@@ -1334,6 +1346,21 @@ export function SpaceInspectorPanel({
                 })}
               </div>
             )}
+          </section>
+        )}
+
+        {/* 4b. Explorar Conexões (Accessible Connection Explorer) */}
+        {nodesById && (
+          <section className="p-4 space-y-3" aria-labelledby="connections-heading">
+            <ConnectionExplorer
+              sectionRef={connectionsRef}
+              focusedNode={selectedNode}
+              connections={nodeConnections}
+              selectedKey={selectedLinkKey}
+              explanation={selectedExplanation}
+              nodesById={nodesById}
+              onSelect={onSelectLink}
+            />
           </section>
         )}
 

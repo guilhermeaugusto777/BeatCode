@@ -1,7 +1,5 @@
 "use client";
 
-/* global window, document */
-
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import dynamic from "next/dynamic";
 import * as d3 from "d3-force";
@@ -32,6 +30,7 @@ import {
 } from "./space/PlanetaryRenderer";
 import { SpaceHudControls } from "./space/SpaceHudControls";
 import { SpaceInspectorPanel } from "./space/SpaceInspectorPanel";
+import { connectionKey, endpointId, explainConnection } from "../lib/connectionExplanation.mjs";
 
 const ForceGraph3D = dynamic(() => import("react-force-graph-3d"), { ssr: false });
 const ForceGraph2D = dynamic(() => import("react-force-graph-2d"), { ssr: false });
@@ -77,6 +76,7 @@ export default function SpotifyConstellationGraph() {
   const fg3dRef = useRef(null);
   const fg2dRef = useRef(null);
   const graphContainerRef = useRef(null);
+  const connectionsRef = useRef(null);
   const searchInputRef = useRef(null);
   const imageCache = useRef({});
   const resourceRegistryRef = useRef(createResourceRegistry());
@@ -110,7 +110,7 @@ export default function SpotifyConstellationGraph() {
   const [preferredViewMode, setPreferredViewMode] = useState("space_3d");
   const [graphMode, setGraphMode] = useState("artists");
   const [timeRange, setTimeRange] = useState("medium_term");
-  const [minEdgeWeight, setMinEdgeWeight] = useState(0.15);
+  const [minEdgeWeight, setMinEdgeWeight] = useState(0.12);
   const [nodeTypeFilter, setNodeTypeFilter] = useState("all");
   const [hiddenClusters, setHiddenClusters] = useState([]);
   const [visualEffects, setVisualEffects] = useState({
@@ -125,6 +125,7 @@ export default function SpotifyConstellationGraph() {
   const [searchQuery, setSearchQuery] = useState("");
   const [hoverNode, setHoverNode] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null);
+  const [selectedLinkKey, setSelectedLinkKey] = useState(null);
   const [focusedClusterId, setFocusedClusterId] = useState(null);
   const [autoRotate, setAutoRotate] = useState(false);
   const [showLegend, setShowLegend] = useState(true);
@@ -192,12 +193,18 @@ export default function SpotifyConstellationGraph() {
   const handleGraphModeChange = useCallback(
     (nextMode) => {
       setGraphMode(nextMode);
+      setSelectedLinkKey(null);
       if (nextMode === "artists" && nodeTypeFilter === "genre") {
         setNodeTypeFilter("all");
       }
     },
     [nodeTypeFilter]
   );
+
+  const handleMinEdgeWeightChange = useCallback((nextWeight) => {
+    setMinEdgeWeight(nextWeight);
+    setSelectedLinkKey(null);
+  }, []);
 
   const handleNodeTypeFilterChange = useCallback(
     (nextType) => {
@@ -276,6 +283,7 @@ export default function SpotifyConstellationGraph() {
     hasInitialFitRef.current = false;
     setGraphData({ metadata: null, nodes: [], links: [] });
     setSelectedNode(null);
+    setSelectedLinkKey(null);
     setHoverNode(null);
     hoverNodeRef.current = null;
     selectedNodeRef.current = null;
@@ -647,6 +655,40 @@ export default function SpotifyConstellationGraph() {
     };
   }, [rawActiveNode, visualPropsByNodeId]);
 
+  const nodesById = useMemo(
+    () => new Map(graphData.nodes.map((node) => [node.id, node])),
+    [graphData.nodes]
+  );
+
+  const selectedLink = useMemo(
+    () => filteredGraph.links.find((link) => connectionKey(link) === selectedLinkKey) || null,
+    [filteredGraph.links, selectedLinkKey]
+  );
+
+  const selectedExplanation = useMemo(
+    () => explainConnection(selectedLink, nodesById, graphMode),
+    [selectedLink, nodesById, graphMode]
+  );
+
+  const nodeConnections = useMemo(() => {
+    if (!selectedNode) return [];
+    return filteredGraph.links
+      .filter((link) => endpointId(link.source) === selectedNode.id || endpointId(link.target) === selectedNode.id)
+      .sort((a, b) => b.weight - a.weight);
+  }, [filteredGraph.links, selectedNode]);
+
+  const selectLink = useCallback((link, fromCanvas = false) => {
+    setSelectedLinkKey(connectionKey(link));
+    const targetSource = nodesById.get(endpointId(link.source)) || null;
+    setSelectedNode(targetSource);
+    selectedNodeRef.current = targetSource;
+    setHoverNode(null);
+    hoverNodeRef.current = null;
+    if (fromCanvas && typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
+      connectionsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [nodesById]);
+
   const computeNeighborhoodWithFallback = useCallback(
     (targetId) => {
       if (!targetId) {
@@ -967,6 +1009,7 @@ export default function SpotifyConstellationGraph() {
 
       selectedNodeRef.current = resolved;
       setSelectedNode(resolved);
+      setSelectedLinkKey(null);
       setFocusedClusterId(null);
       const updatedPrefs = recordVisitedPlanet(resolved);
       setRecentPlanets(updatedPrefs.recent_planets || []);
@@ -1383,7 +1426,10 @@ export default function SpotifyConstellationGraph() {
                 <button
                   type="button"
                   data-testid="enter-demo-btn"
-                  onClick={() => setExperience("demo")}
+                  onClick={() => {
+                    setMinEdgeWeight(0.12);
+                    setExperience("demo");
+                  }}
                   className="rounded-2xl border border-zinc-700 bg-zinc-900/80 p-5 text-left transition hover:border-amber-400/70 hover:bg-zinc-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
                 >
                   <span className="text-xs font-bold uppercase tracking-widest text-amber-400">
@@ -1437,7 +1483,7 @@ export default function SpotifyConstellationGraph() {
         timeRange={timeRange}
         onTimeRangeChange={setTimeRange}
         minEdgeWeight={minEdgeWeight}
-        onMinEdgeWeightChange={setMinEdgeWeight}
+        onMinEdgeWeightChange={handleMinEdgeWeightChange}
         searchQuery={searchQuery}
         onSearchQueryChange={setSearchQuery}
         searchInputRef={searchInputRef}
@@ -1472,9 +1518,15 @@ export default function SpotifyConstellationGraph() {
         <main
           ref={graphContainerRef}
           data-testid="beatcode-space-stage"
-          className="space-universe-stage relative min-h-[54vh] min-w-0 flex-1 overflow-hidden lg:min-h-0"
+          className="space-universe-stage relative min-h-[max(360px,54vh)] min-w-0 flex-1 overflow-hidden lg:min-h-0"
           aria-label="Grafo de Conhecimento 3D BeatCode"
         >
+          {/* Badge Informativo de Acessibilidade e Mobile */}
+          <div className="pointer-events-none absolute left-4 top-4 z-10 max-w-[210px] rounded-xl border border-zinc-800/80 bg-zinc-950/85 px-3 py-2 text-xs text-zinc-300 backdrop-blur-sm sm:max-w-xs sm:px-4 sm:py-3">
+            <strong className="block text-sm text-white">{graphMode === "artists" ? "Artista ↔ artista" : "Artista ↔ gênero"}</strong>
+            <span className="sm:hidden">{graphMode === "artists" ? "Ligações inferidas pelo BeatCode." : "Hexágonos: gêneros do Spotify."}</span>
+            <span className="hidden sm:inline">{graphMode === "artists" ? "As linhas representam afinidade inferida pelo BeatCode." : "Os hexágonos representam gêneros catalogados no Spotify."}</span>
+          </div>
           {loading ? (
             <div
               className="flex h-full items-center justify-center px-6 text-center text-sm text-zinc-300"
@@ -1505,7 +1557,10 @@ export default function SpotifyConstellationGraph() {
                 )}
                 <button
                   type="button"
-                  onClick={() => setExperience("demo")}
+                  onClick={() => {
+                    setMinEdgeWeight(0.12);
+                    setExperience("demo");
+                  }}
                   className="rounded-xl border border-amber-500/60 px-5 py-2.5 text-xs font-semibold text-amber-300"
                 >
                   Explorar demonstração
@@ -1640,11 +1695,18 @@ export default function SpotifyConstellationGraph() {
               selectedNodeRef.current = null;
               setHoverNode(null);
               hoverNodeRef.current = null;
+              setSelectedLinkKey(null);
             }}
             recentPlanets={recentPlanets}
             visibleNodes={filteredGraph.nodes}
             showLegend={showLegend}
             onToggleLegend={() => setShowLegend((prev) => !prev)}
+            connectionsRef={connectionsRef}
+            selectedLinkKey={selectedLinkKey}
+            selectedExplanation={selectedExplanation}
+            nodeConnections={nodeConnections}
+            nodesById={nodesById}
+            onSelectLink={selectLink}
           />
         </div>
       </div>
