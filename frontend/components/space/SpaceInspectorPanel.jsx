@@ -48,12 +48,14 @@ export function SpaceInspectorPanel({
   onFocusNode,
   onCloseSelection,
   recentPlanets = [],
+  visibleNodes = [],
   showLegend = true,
   onToggleLegend,
 }) {
   const [collapsedSections, setCollapsedSections] = useState({
     telemetry: false,
     constellations: false,
+    catalog: false,
     history: false,
     directConnections: false,
     indirectConnections: false
@@ -855,7 +857,77 @@ export function SpaceInspectorPanel({
           )}
         </section>
 
-        {/* 4. Recent Exploration History */}
+        {/* 4. Accessible Textual Planet/Star Catalog (WCAG 2.2 AA Alternative to 3D Canvas) */}
+        {Array.isArray(visibleNodes) && visibleNodes.length > 0 && (
+          <section
+            className="p-4 space-y-3"
+            aria-label="Catálogo Textual Acessível de Astros"
+            data-testid="accessible-planet-list"
+          >
+            <button
+              type="button"
+              onClick={() => toggleSection("catalog")}
+              aria-expanded={!collapsedSections.catalog}
+              className="w-full flex items-center justify-between text-left text-xs font-bold tracking-wider uppercase text-zinc-300 hover:text-white transition-colors"
+            >
+              <div className="flex items-center gap-1.5">
+                <Globe className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Exploração por Lista ({visibleNodes.length} astros)</span>
+              </div>
+              {collapsedSections.catalog ? (
+                <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
+              ) : (
+                <ChevronUp className="w-3.5 h-3.5 text-zinc-400" />
+              )}
+            </button>
+
+            {!collapsedSections.catalog && (
+              <div
+                role="list"
+                aria-label="Lista de planetas e núcleos estelares visíveis"
+                className="max-h-48 overflow-y-auto space-y-1.5 pr-1 pt-1"
+              >
+                {visibleNodes.slice(0, 30).map((nodeItem) => {
+                  const isCurrent = selectedNode?.id === nodeItem.id;
+                  const isGenre = nodeItem.node_type === "genre";
+                  return (
+                    <div key={nodeItem.id} role="listitem">
+                      <button
+                        type="button"
+                        data-testid={`planet-list-item-${nodeItem.id}`}
+                        aria-pressed={isCurrent}
+                        onClick={() => onSelectNode && onSelectNode(nodeItem)}
+                        className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl text-left text-xs border transition-all ${
+                          isCurrent
+                            ? "bg-emerald-500/20 text-emerald-200 border-emerald-500/60"
+                            : "bg-zinc-900/70 text-zinc-200 border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-800/80"
+                        }`}
+                      >
+                        <span className="flex items-center gap-2 min-w-0 truncate">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: nodeItem.color || "#1DB954" }}
+                            aria-hidden="true"
+                          />
+                          <span className="font-semibold truncate">{nodeItem.name}</span>
+                        </span>
+                        <span className="shrink-0 text-[10px] font-mono text-zinc-400">
+                          {isGenre
+                            ? `Gênero · ${nodeItem.connected_artists_count ?? 1}`
+                            : nodeItem.affinity_rank
+                            ? `#${nodeItem.affinity_rank}`
+                            : "Planeta"}
+                        </span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* 5. Recent Exploration History */}
         {recentPlanets && recentPlanets.length > 0 && (
           <section className="p-4 space-y-3" aria-label="Histórico de Exploração Recente">
             <button
