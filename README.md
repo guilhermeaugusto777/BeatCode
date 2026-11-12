@@ -70,6 +70,8 @@ Crie um aplicativo no [Spotify Developer Dashboard](https://developer.spotify.co
 
 O botão **Conectar minha conta Spotify** inicia o fluxo OAuth. O botão de saída invalida a sessão **local**; não revoga a autorização no Spotify. Não use `localhost` em um serviço e `127.0.0.1` no outro, pois cookies e origem precisam coincidir.
 
+Para verificar login, os dois grafos, renovação de token e isolamento entre perfis sem expor credenciais, siga o [roteiro de validação local com Spotify](docs/validacao-spotify-real.md).
+
 ## Arquitetura e documentação
 
 ```text
